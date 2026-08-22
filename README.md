@@ -35,7 +35,6 @@ All three categories use Minecraft's normal `servers.dat` server list. The mod s
 - **Sequential Auto Join** available only in Scanned Servers.
 - Auto Join continues through ordinary connection failures and stops on a successful stable join.
 - A scanned server that joins successfully and remains in-game for roughly eight seconds is automatically promoted to **Servers**.
-- A real Connect-screen **Cancel** stops an Auto Join run.
 - **ViaFabricPlus integration** for connecting to servers using different protocol versions when ViaFabricPlus is installed.
 - **Finder latency display**, diagnostics, settings and statistics.
 - **Title-screen credit** for Zazu's Server Tool without adding an extra title-screen button.
@@ -52,7 +51,7 @@ All three categories use Minecraft's normal `servers.dat` server list. The mod s
 
 1. Install **Fabric Loader** for Minecraft 26.2.
 2. Install the matching **Fabric API**.
-3. Download the Zazu's Server Tool release JAR, or build the JAR from this repository.
+3. Build the JAR from this repository.
 4. Place the JAR in your Minecraft instance's `mods` folder.
 5. Make sure older versions of Zazu's Server Tool are removed so only one version is installed.
 6. Start Minecraft with the Fabric profile / Fabric-enabled Prism Launcher instance.
@@ -65,9 +64,8 @@ mods/
 ├── fabric-api-0.157.0+26.2.jar
 ├── Zazus-Server-Tool-0.3.33+mc26.2.jar
 └── ViaFabricPlus-4.6.1.jar        # optional
-```
 
-If you use **Prism Launcher**, open the instance, select **Edit → Mods**, then add the Zazu's Server Tool JAR and Fabric API there.
+
 
 ## BreakBlocks API key (optional)
 
