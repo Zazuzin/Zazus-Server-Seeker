@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "zazus-server-tool",
+  "version": "${version}",
+  "name": "Zazu's Server Tool",
+  "description": "Client-side Minecraft server discovery and management with Favourites / Servers / Scanned Servers categories, scanned-only sequential Auto Join, verified-server promotion, whitelist cleanup, live verification, Finder latency, continuous auto-add, and optional ViaFabricPlus integration.",
+  "authors": ["Zazuzin"],
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "dev.zazuzin.zst.MultiplayerManagementEntrypoint",
+      "dev.zazuzin.zst.WhitelistAutoDeleteEntrypoint",
+      "dev.zazuzin.zst.AutoJoinEntrypoint",
+      "dev.zazuzin.zst.ContinuousAutoAddEntrypoint",
+      "dev.zazuzin.zst.TitleCreditEntrypoint",
+      "dev.zazuzin.zst.ServerTabsEntrypoint"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "~26.2",
+    "fabric-api": "*",
+    "java": ">=21"
+  },
+  "suggests": {
+    "viafabricplus": ">=4.6.1"
+  }
+}
