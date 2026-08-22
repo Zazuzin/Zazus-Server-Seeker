@@ -37,7 +37,6 @@ All three categories use Minecraft's normal `servers.dat` server list. The mod s
 - A scanned server that joins successfully and remains in-game for roughly eight seconds is automatically promoted to **Servers**.
 - **ViaFabricPlus integration** for connecting to servers using different protocol versions when ViaFabricPlus is installed.
 - **Finder latency display**, diagnostics, settings and statistics.
-- **Title-screen credit** for Zazu's Server Tool without adding an extra title-screen button.
 
 ## Requirements
 
