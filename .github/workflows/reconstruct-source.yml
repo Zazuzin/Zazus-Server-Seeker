@@ -1,0 +1,52 @@
+name: Complete v0.3.33 source upload
+
+on:
+  push:
+    paths:
+      - '.upload/**'
+      - '.github/workflows/reconstruct-source.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  reconstruct:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct large Java source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          target='src/client/java/dev/zazuzin/zst'
+          mkdir -p "$target"
+
+          cat .upload/ServerTabsEntrypoint.java.b64.* | tr -d '\r\n' | base64 --decode > "$target/ServerTabsEntrypoint.java"
+          cat .upload/ServerFinderClient.java.b64.* | tr -d '\r\n' | base64 --decode > "$target/ServerFinderClient.java"
+          cat .upload/MultiplayerManagementEntrypoint.java.b64.* | tr -d '\r\n' | base64 --decode > "$target/MultiplayerManagementEntrypoint.java"
+
+          printf '%s  %s\n' 'fa1fdecdb8ee6a8cb2b0159d93ad275b8da6d5c0de3e3f06280605752d703efe' "$target/ServerTabsEntrypoint.java" | sha256sum -c -
+          printf '%s  %s\n' '0cdd5c6013cff055452a500f1e3597390efaf281f0d83db87ed2459f2cac9673' "$target/ServerFinderClient.java" | sha256sum -c -
+          printf '%s  %s\n' 'bb236fc028a4c348cbe4075d32462cf22a5b6cde31907ab0387fbffbf7ad8602' "$target/MultiplayerManagementEntrypoint.java" | sha256sum -c -
+
+          count=$(find "$target" -maxdepth 1 -type f -name '*.java' | wc -l | tr -d ' ')
+          test "$count" = '17'
+
+      - name: Remove temporary upload staging and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .upload
+          rm -f .github/workflows/reconstruct-source.yml
+          rmdir .github/workflows 2>/dev/null || true
+          rmdir .github 2>/dev/null || true
+
+          git config user.name 'Zazuzin'
+          git config user.email 'xnfshadow@gmail.com'
+          git add -A
+          git commit -m 'Complete Zazu Server Tool v0.3.33 source repository'
+          git push origin HEAD:main
