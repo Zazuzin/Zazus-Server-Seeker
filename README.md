@@ -1,39 +1,137 @@
 # Zazu's Server Tool
 
-Fully buildable source for **Zazu's Server Tool 0.3.33** targeting Minecraft Java Edition **26.2** with Fabric.
+**Zazu's Server Tool** is a client-side Fabric mod for **Minecraft Java Edition 26.2** that makes discovering, organising and testing multiplayer servers easier from inside Minecraft.
 
-This repository is the source of truth for the mod. It does **not** depend on a prebuilt Zazu's Server Tool JAR and contains no preserved obfuscated `a`–`h` core classes or bytecode patching step.
+The mod adds a server Finder powered by the BreakBlocks API, separates saved servers into useful categories, provides favourites and management tools, and includes an optional sequential Auto Join system for testing newly scanned servers. It is designed to work as a normal Fabric mod and does not require Meteor Client.
+
+## What the mod does
+
+Zazu's Server Tool expands Minecraft's Multiplayer screen with a category-based workflow:
+
+- **Favourites** — servers you have marked as favourites.
+- **Servers** — manual/existing servers and scanned servers that have been successfully verified by joining them.
+- **Scanned Servers** — servers added through the Finder that have not yet been verified by a stable join.
+- **Zazu's Server Tool / Finder** — searches BreakBlocks for servers matching your filters and lets you inspect or add them directly.
+
+All three categories use Minecraft's normal `servers.dat` server list. The mod stores classification metadata separately instead of creating duplicate server databases.
+
+## Key features
+
+- **BreakBlocks server discovery** directly inside Minecraft.
+- **Optional BreakBlocks API key support** for higher limits and any additional access provided by your BreakBlocks account/tier.
+- **Works without an API key** using normal anonymous BreakBlocks access.
+- **Live server verification** before Finder results are presented.
+- **Version filtering** for supported Minecraft versions.
+- **Minimum and maximum player filters**.
+- **Server type filtering** for Any, Premium and Cracked servers.
+- **Sorting options** for Finder results.
+- **Add Server** and **View Details** controls for discovered servers.
+- **Continuous Auto Add** for repeatedly finding and adding new servers until stopped or the configured limit is reached.
+- **Added-history tracking** so previously added servers can be skipped automatically.
+- **Favourites system** with favourites kept in their own category.
+- **Per-server Delete** controls.
+- **Delete Non-Favourites** management option.
+- **Whitelist cleanup** — definite whitelist rejections are automatically removed from the saved server list.
+- **Sequential Auto Join** available only in Scanned Servers.
+- Auto Join continues through ordinary connection failures and stops on a successful stable join.
+- A scanned server that joins successfully and remains in-game for roughly eight seconds is automatically promoted to **Servers**.
+- A real Connect-screen **Cancel** stops an Auto Join run.
+- **ViaFabricPlus integration** for connecting to servers using different protocol versions when ViaFabricPlus is installed.
+- **Finder latency display**, diagnostics, settings and statistics.
+- **Title-screen credit** for Zazu's Server Tool without adding an extra title-screen button.
 
 ## Requirements
 
-Runtime/test target:
+- **Minecraft Java Edition 26.2**
+- **Fabric Loader 0.19.3** or newer compatible version
+- **Fabric API** — tested with `0.157.0+26.2`
+- A Java runtime suitable for Minecraft 26.2
+- **ViaFabricPlus 4.6.1+** is optional
 
-- Minecraft 26.2
-- Fabric Loader 0.19.3 or newer compatible release
-- Fabric API (tested target: 0.157.0+26.2)
-- Java 25 for the Minecraft 26.2 runtime/development environment
-- Release classes are intentionally compiled to Java 21 bytecode
-- ViaFabricPlus is optional
+## Installation
 
-## Build
+1. Install **Fabric Loader** for Minecraft 26.2.
+2. Install the matching **Fabric API**.
+3. Download the Zazu's Server Tool release JAR, or build the JAR from this repository.
+4. Place the JAR in your Minecraft instance's `mods` folder.
+5. Make sure older versions of Zazu's Server Tool are removed so only one version is installed.
+6. Start Minecraft with the Fabric profile / Fabric-enabled Prism Launcher instance.
+7. Open **Multiplayer** to access the Zazu's Server Tool category screen and Finder.
 
-### Verified local build
+Example mods folder contents:
 
-For the dependency-free release build, JDK 21+ is sufficient:
+```text
+mods/
+├── fabric-api-0.157.0+26.2.jar
+├── Zazus-Server-Tool-0.3.33+mc26.2.jar
+└── ViaFabricPlus-4.6.1.jar        # optional
+```
+
+If you use **Prism Launcher**, open the instance, select **Edit → Mods**, then add the Zazu's Server Tool JAR and Fabric API there.
+
+## BreakBlocks API key (optional)
+
+An API key is **not required**. If no key is configured, the Finder continues to use BreakBlocks anonymously.
+
+To use your own BreakBlocks API key, run the mod once and then open:
+
+```text
+config/zazus-server-tool.properties
+```
+
+Set:
+
+```properties
+breakBlocksApiKey=YOUR_API_KEY
+```
+
+When a key is configured, Zazu's Server Tool sends it only in the HTTP `Authorization: Bearer ...` header. The key is not bundled in the mod, placed in request URLs, or written to Zazu's Server Tool log messages.
+
+If BreakBlocks rejects the key with HTTP 401/403, the Finder retries anonymously so the mod remains usable. HTTP 429 responses also respect BreakBlocks' `Retry-After` value when available.
+
+**Do not commit or share your API key.**
+
+## Using the server categories
+
+### Favourites
+
+Any server marked as a favourite appears only in the Favourites category. Unfavouriting it returns it to its original Servers or Scanned Servers classification.
+
+### Servers
+
+This category contains normal manually added/existing servers and scanned servers that have been verified through a stable successful join.
+
+### Scanned Servers
+
+Servers added by the Finder begin here. They remain Scanned until successfully verified.
+
+**Auto Join** is available only in this category. It works through eligible scanned servers sequentially:
+
+1. Attempts the first eligible scanned server.
+2. Ordinary connection failure moves to the next server.
+3. Definite whitelist rejection deletes that server and continues.
+4. Pressing the real connection-screen Cancel button stops Auto Join.
+5. A stable successful connection stops Auto Join and promotes that server to Servers.
+
+## Building from source
+
+This repository contains the complete readable source for the mod and does not depend on a prebuilt Zazu's Server Tool JAR.
+
+### Verified release build
+
+With JDK 21 or newer available:
 
 ```bash
 ./build.sh
 ```
 
-Output:
+The output is:
 
 ```text
 build/libs/Zazus-Server-Tool-0.3.33+mc26.2.jar
 ```
 
-`build.sh` compiles the complete Java source and packages the mod. Because the project intentionally accesses Minecraft/Fabric APIs reflectively for mapping compatibility, it uses a compile-only local stub for Fabric's `ClientModInitializer`; that stub is removed before the JAR is packaged. The real Fabric Loader interface is supplied at runtime.
-
-Then verify the artifact with:
+You can then run:
 
 ```bash
 ./verify.sh
@@ -41,56 +139,30 @@ Then verify the artifact with:
 
 ### Fabric Loom / Gradle
 
-The repository also includes normal Fabric Loom files for IDE/development use. With a compatible Gradle installation and Java 25, run:
+The repository also contains Fabric Loom / Gradle configuration for development and IDE use.
 
 ```bash
 gradle build
 ```
 
-The configured dependencies are Minecraft 26.2, Fabric Loader 0.19.3, and Fabric API 0.157.0+26.2. Minecraft 26.2 is unobfuscated, so the project uses the 26.2 `net.fabricmc.fabric-loom` setup without a mappings dependency.
+The configured development dependencies target Minecraft 26.2, Fabric Loader 0.19.3 and Fabric API 0.157.0+26.2.
 
-## BreakBlocks API key (optional)
+## Compatibility notes
 
-The Finder works without an API key exactly as before. BreakBlocks documents `/servers/find` authentication as optional.
+- Zazu's Server Tool is a **client-side** mod.
+- Meteor Client is **not required**.
+- ViaFabricPlus is **optional** but supported.
+- Category switching is designed to work on already-loaded Multiplayer server rows rather than repeatedly reloading `servers.dat` or doing synchronous network work every tick.
 
-To enable authenticated requests, open:
+## Project information
 
-```text
-config/zazus-server-tool.properties
-```
+- **Mod:** Zazu's Server Tool
+- **Current version:** 0.3.33
+- **Minecraft:** 26.2
+- **Mod ID:** `zazus-server-tool`
+- **Java package:** `dev.zazuzin.zst`
+- **Author:** Zazuzin
 
-and set:
+## License
 
-```properties
-breakBlocksApiKey=YOUR_API_KEY
-```
-
-Do not commit or share your key. The key is never bundled in the mod, never placed in request URLs, and is never written to Zazu's Server Tool log messages. On POSIX systems the mod attempts to restrict the settings file to owner read/write permissions.
-
-When a key is configured, the Finder sends it only as `Authorization: Bearer …`. This lets BreakBlocks apply the higher rate limits and any additional `/servers/find` access granted by the account/tier. The mod keeps the per-request batch at 20 to avoid creating a large burst of Minecraft status probes, but authenticated searches may traverse a deeper result window when BreakBlocks permits it.
-
-If BreakBlocks rejects the key with HTTP 401/403, the same request is retried anonymously and the Finder continues working. HTTP 429 responses use BreakBlocks' `Retry-After` value when available.
-
-## Multiplayer workflow
-
-Opening Multiplayer enters the category hub. Favourites, Servers and Scanned Servers are filtered views over the same vanilla `servers.dat`; they are not duplicate databases.
-
-- **Favourites**: only favourite servers. Unfavouriting returns a server to its retained Servers/Scanned classification.
-- **Servers**: manual/established servers and scanned servers that survive a real connection for about eight seconds.
-- **Scanned Servers**: Finder-added servers not yet verified by a stable join.
-- **Auto Join** exists only in Scanned Servers. Ordinary failures continue to the next eligible scanned server; a real Connect-screen Cancel stops the run; whitelist rejection deletes that server; stable success stops Auto Join and promotes it to Servers.
-- Whitelist deletion deliberately overrides favourite deletion protection.
-
-## Release-hardening notes
-
-0.3.33 continues the fully readable source baseline introduced in 0.3.32 and adds optional BreakBlocks API-key authentication without making the key mandatory. Legacy hidden Auto Join UI, bytecode strippers, patch-only enhancement entrypoints, direct reflection against Fabric's package-private `ArrayBackedEvent`, and the obsolete direct `Minecraft.setScreen(Screen)` assumption are not part of this source tree.
-
-Category switching operates on already-loaded Multiplayer row collections and does not reload `servers.dat` or perform network work every tick.
-
-## Project identity
-
-- Mod: Zazu's Server Tool
-- Mod ID: `zazus-server-tool`
-- Package: `dev.zazuzin.zst`
-- Author: Zazuzin
-- License: no license is granted by this repository unless a separate LICENSE file is added by the author.
+No license is granted by this repository unless a separate `LICENSE` file is added by the author.
