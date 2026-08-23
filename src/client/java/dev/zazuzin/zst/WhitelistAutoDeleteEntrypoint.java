@@ -33,7 +33,7 @@ public final class WhitelistAutoDeleteEntrypoint implements ClientModInitializer
                         }
                         return null;
                     });
-            System.out.println("[Zazu's Server Tool] 0.3.33 whitelist auto-delete enabled.");
+            System.out.println("[Zazu's Server Tool] 0.3.34 whitelist auto-delete enabled.");
         } catch (Throwable t) {
             System.err.println("[Zazu's Server Tool] Whitelist watcher registration failed: " + Reflection.unwrap(t));
         }

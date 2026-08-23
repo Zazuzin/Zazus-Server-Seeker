@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-JAR="${1:-$ROOT/build/libs/Zazus-Server-Tool-0.3.33+mc26.2.jar}"
+JAR="${1:-$ROOT/build/libs/Zazus-Server-Tool-0.3.34+mc26.2.jar}"
 [[ -f "$JAR" ]] || { echo "JAR not found: $JAR" >&2; exit 1; }
 
 unzip -t "$JAR" >/dev/null
@@ -38,6 +38,22 @@ if grep -R -n 'Minecraft.setScreen(Screen)' "$ROOT/src/client/java"; then
   exit 1
 fi
 
+# Regression guards for the 0.3.34 Multiplayer repair. Category switching must
+# use Minecraft's in-memory ServerSelectionList rebuild path, screen ownership
+# must be 26.2-aware, and the old widget-list replacement strategy must stay gone.
+grep -q 'updateOnlineServers' "$ROOT/src/client/java/dev/zazuzin/zst/ServerListAccess.java" || {
+  echo "Missing in-memory category rebuild path" >&2; exit 1;
+}
+grep -q 'ScreenCompat.currentScreen' "$ROOT/src/client/java/dev/zazuzin/zst/Reflection.java" || {
+  echo "Reflection.currentScreen is not using the 26.2-compatible screen lookup" >&2; exit 1;
+}
+grep -q 'Reflection.invokeQuiet(entry, "getY")' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Row controls are not anchored to the entry layout Y coordinate" >&2; exit 1;
+}
+if grep -q 'replaceWidgetList' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java"; then
+  echo "Legacy widget-list replacement strategy is still present" >&2; exit 1;
+fi
+
 python3 - "$JAR" <<'PY'
 import json, struct, sys, zipfile
 from pathlib import PurePosixPath
@@ -60,7 +76,7 @@ with zipfile.ZipFile(jar) as z:
     meta = json.loads(z.read("fabric.mod.json"))
     if meta.get("id") != "zazus-server-tool":
         raise SystemExit("fabric.mod.json mod id mismatch")
-    if meta.get("version") != "0.3.33":
+    if meta.get("version") != "0.3.34":
         raise SystemExit("fabric.mod.json version mismatch")
     if set(meta.get("entrypoints", {}).get("client", [])) != expected_entrypoints:
         raise SystemExit("fabric.mod.json client entrypoints mismatch")

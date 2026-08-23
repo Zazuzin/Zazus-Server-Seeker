@@ -15,9 +15,9 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
     public void onInitializeClient() {
         try {
             registerGlobalAfterInit();
-            System.out.println("[Zazu's Server Tool] 0.3.33 multiplayer management hook registered.");
+            System.out.println("[Zazu's Server Tool] 0.3.34 multiplayer management hook registered.");
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] 0.3.33 failed to register: " + Reflection.unwrap(t));
+            System.err.println("[Zazu's Server Tool] 0.3.34 failed to register: " + Reflection.unwrap(t));
         }
     }
 
@@ -42,6 +42,9 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
     }
 
     private static void installMultiplayerControls(Object client, Object screen, int width, int height) throws Exception {
+        MultiplayerState previous = STATES.get(screen);
+        if (previous != null) detachManagedWidgets(previous);
+
         MultiplayerState state = new MultiplayerState(client, screen, width, height);
         STATES.put(screen, state);
 
@@ -63,12 +66,24 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         createPerServerButtons(state);
         registerRowButtonMouseInterceptor(state);
         registerAfterTick(state);
-        System.out.println("[Zazu's Server Tool] 0.3.33 multiplayer controls installed. ViaFabricPlus integration: " + (ViaFabricPlusBridge.isAvailable() ? "available" : "not installed"));
+        System.out.println("[Zazu's Server Tool] 0.3.34 multiplayer controls installed. ViaFabricPlus integration: " + (ViaFabricPlusBridge.isAvailable() ? "available" : "not installed"));
+    }
+
+    private static void detachManagedWidgets(MultiplayerState state) {
+        if (state == null) return;
+        Reflection.removeWidget(state.screen, state.finderButton);
+        Reflection.removeWidget(state.screen, state.deleteAllButton);
+        for (ServerButtons buttons : new ArrayList<>(state.serverButtons)) {
+            Reflection.removeWidget(state.screen, buttons.favourite);
+            Reflection.removeWidget(state.screen, buttons.delete);
+        }
+        state.serverButtons.clear();
     }
 
     private static void createPerServerButtons(MultiplayerState state) throws Exception {
         for (ServerButtons buttons : state.serverButtons) {
-            try { Reflection.widgets(state.screen).remove(buttons.favourite); Reflection.widgets(state.screen).remove(buttons.delete); } catch (Throwable ignored) {}
+            Reflection.removeWidget(state.screen, buttons.favourite);
+            Reflection.removeWidget(state.screen, buttons.delete);
         }
         state.serverButtons.clear();
         List<Object> entries = onlineServerEntries(state.screen);
@@ -264,9 +279,24 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
             Reflection.setButtonText(sb.favourite, fav ? "★" : "☆");
             Reflection.setButtonText(sb.delete, fav ? "Locked" : "Delete");
 
-            // Keep controls clear of the scrollbar. They sit inside the right side of the row.
-            int deleteX = Math.min(rowLeft + rowWidth - 50, scrollbarX - 52);
-            int favX = deleteX - 24;
+            // Keep management controls outside the vanilla row content whenever
+            // possible so they never cover player count, ping, MOTD or status icons.
+            int favX;
+            int deleteX;
+            int totalWidth = 22 + 4 + 48;
+            int rightOutside = scrollbarX + 6;
+            if (rightOutside + totalWidth <= state.width - 6) {
+                favX = rightOutside;
+                deleteX = favX + 26;
+            } else if (rowLeft - totalWidth - 6 >= 6) {
+                favX = rowLeft - totalWidth - 6;
+                deleteX = favX + 26;
+            } else {
+                // Extremely narrow windows: use the left edge of the row rather
+                // than the right-side status area, preserving ping/player text.
+                favX = Math.max(4, rowLeft + 2);
+                deleteX = favX + 26;
+            }
             Reflection.setPosition(sb.favourite, favX, top);
             Reflection.setPosition(sb.delete, deleteX, top);
         }
@@ -274,16 +304,22 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
     }
 
     private static int currentRowTop(Object listWidget, Object entry, int index, int fallbackTop) {
+        // Minecraft 26.2 entries are LayoutElements and expose their actual Y
+        // after layout. This stays correct while scrolling and after filtered
+        // lists are rebuilt, unlike guessing from listTop/itemHeight.
+        if (entry != null) {
+            Object direct = Reflection.invokeQuiet(entry, "getY");
+            if (direct instanceof Number n) return n.intValue();
+            direct = Reflection.getField(entry, "y");
+            if (direct instanceof Number n) return n.intValue();
+        }
         if (listWidget != null) {
-            for (String method : List.of("getRowTop", "getEntryPosition")) {
-                Method m = Reflection.findMethod(listWidget.getClass(), method, 1);
-                if (m != null) {
-                    try {
-                        Object arg = m.getParameterTypes()[0].isPrimitive() ? index : entry;
-                        Object value = m.invoke(listWidget, arg);
-                        if (value instanceof Number n) return n.intValue();
-                    } catch (Throwable ignored) {}
-                }
+            Method rowTop = Reflection.findMethod(listWidget.getClass(), "getRowTop", 1);
+            if (rowTop != null) {
+                try {
+                    Object value = rowTop.invoke(listWidget, index);
+                    if (value instanceof Number n) return n.intValue();
+                } catch (Throwable ignored) {}
             }
             double scroll = Reflection.doubleValue(listWidget, "getScrollAmount", 0);
             int itemHeight = Reflection.intValue(listWidget, "itemHeight", 36);

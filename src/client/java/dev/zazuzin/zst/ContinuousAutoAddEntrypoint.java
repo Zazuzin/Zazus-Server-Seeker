@@ -25,7 +25,7 @@ public final class ContinuousAutoAddEntrypoint implements ClientModInitializer {
                         }
                         return null;
                     });
-            System.out.println("[Zazu's Server Tool] 0.3.33 continuous Auto Add enabled.");
+            System.out.println("[Zazu's Server Tool] 0.3.34 continuous Auto Add enabled.");
         } catch (Throwable t) {
             System.err.println("[Zazu's Server Tool] Continuous Auto Add registration failed: " + Reflection.unwrap(t));
         }

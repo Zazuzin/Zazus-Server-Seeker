@@ -34,7 +34,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
             registerScreenWatcher();
             registerPlayJoinWatcher();
             registerPlayDisconnectWatcher();
-            System.out.println("[Zazu's Server Tool] 0.3.33 Sequential Auto Join engine ready; current setting: " + (enabled ? "ON" : "OFF"));
+            System.out.println("[Zazu's Server Tool] 0.3.34 Sequential Auto Join engine ready; current setting: " + (enabled ? "ON" : "OFF"));
         } catch (Throwable t) {
             System.err.println("[Zazu's Server Tool] Could not enable Sequential Auto Join:");
             Reflection.unwrap(t).printStackTrace();

@@ -167,6 +167,31 @@ final class Reflection {
         widgets(screen).add(widget);
     }
 
+    static void removeWidget(Object screen, Object widget) {
+        if (screen == null || widget == null) return;
+        Method remove = findCompatibleMethod(screen.getClass(), "removeWidget", widget);
+        if (remove == null) remove = findCompatibleMethod(screen.getClass(), "remove", widget);
+        if (remove != null) {
+            try { remove.invoke(screen, widget); return; } catch (Throwable ignored) {}
+        }
+
+        // Fallback for mapping/layout changes: remove the exact widget identity
+        // from Screen's children/renderables/narratables lists.
+        for (Class<?> c = screen.getClass(); c != null; c = c.getSuperclass()) {
+            for (Field f : c.getDeclaredFields()) {
+                if (!List.class.isAssignableFrom(f.getType())) continue;
+                try {
+                    f.trySetAccessible();
+                    Object value = f.get(screen);
+                    if (value instanceof List<?> raw) {
+                        @SuppressWarnings("unchecked") List<Object> list = (List<Object>) raw;
+                        list.removeIf(v -> v == widget);
+                    }
+                } catch (Throwable ignored) {}
+            }
+        }
+    }
+
     static Object makeButton(String text, int x, int y, int width, int height, Consumer<Object> pressed) throws Exception {
         Class<?> buttonClass = firstClass("net.minecraft.client.gui.components.Button", "net.minecraft.client.gui.widget.ButtonWidget");
         Object message = literal(text);
@@ -272,9 +297,7 @@ final class Reflection {
     }
 
     static Object currentScreen(Object client) {
-        Object screen = getField(client, "screen", "currentScreen");
-        if (screen != null) return screen;
-        return invokeQuiet(client, "screen");
+        return ScreenCompat.currentScreen(client);
     }
 
     static void setScreen(Object client, Object screen) throws Exception {
