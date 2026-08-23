@@ -264,7 +264,7 @@ public final class ServerFinderClient {
         HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofSeconds(12))
                 .header("Accept", "application/json")
-                .header("User-Agent", "ZazusServerTool/0.3.33")
+                .header("User-Agent", "ZazusServerTool/0.3.34")
                 .GET();
         if (apiKey != null && !apiKey.isBlank()) {
             builder.header("Authorization", "Bearer " + apiKey.trim());

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-VERSION="0.3.33"
+VERSION="0.3.34"
 MC_VERSION="26.2"
 OUT="$ROOT/build/libs/Zazus-Server-Tool-${VERSION}+mc${MC_VERSION}.jar"
 TMP="$ROOT/build/local-javac"

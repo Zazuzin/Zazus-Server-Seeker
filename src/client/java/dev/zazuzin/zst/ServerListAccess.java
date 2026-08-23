@@ -9,6 +9,144 @@ final class ServerListAccess {
 
     private ServerListAccess() {}
 
+    static List<Saved> savedFromScreen(Object screen) {
+        Object list = serverListObject(screen);
+        if (list == null) return savedFromEntries(onlineEntries(screen));
+        ArrayList<Saved> out = new ArrayList<>();
+        for (Object data : serverDataList(list)) {
+            String endpoint = endpoint(data);
+            if (endpoint.isBlank()) continue;
+            String name = name(data);
+            out.add(new Saved(data, endpoint, name, name.startsWith("★ ")));
+        }
+        return out;
+    }
+
+    /**
+     * Rebuilds the vanilla Multiplayer entries from an in-memory filtered
+     * ServerList. This uses JoinMultiplayerScreen's already-loaded server data
+     * and never reloads servers.dat on category switches.
+     */
+    static void applyCategory(Object client, Object screen, ServerCategoryStore.Tab tab) throws Exception {
+        Object source = serverListObject(screen);
+        Object listWidget = listWidget(screen);
+        if (source == null || listWidget == null) return;
+
+        Object filtered = createEmptyServerList(client);
+        for (Object data : serverDataList(source)) {
+            String endpoint = endpoint(data);
+            boolean favourite = name(data).startsWith("★ ");
+            boolean include = tab == null || switch (tab) {
+                case FAVOURITES -> favourite;
+                case SERVERS -> !favourite && !ServerCategoryStore.isScanned(endpoint);
+                case SCANNED -> !favourite && ServerCategoryStore.isScanned(endpoint);
+            };
+            if (include) addServerData(filtered, data);
+        }
+
+        Method update = compatibleOneArgMethod(listWidget.getClass(), "updateOnlineServers", filtered);
+        if (update == null) update = compatibleOneArgMethod(listWidget.getClass(), "setServers", filtered);
+        if (update == null) throw new NoSuchMethodException("ServerSelectionList.updateOnlineServers(ServerList)");
+        update.invoke(listWidget, filtered);
+    }
+
+    private static Object serverListObject(Object screen) {
+        Object value = RuntimeAccess.invoke(screen, "getServers");
+        if (value == null) value = RuntimeAccess.invoke(screen, "getServerList");
+        if (value == null) value = RuntimeAccess.field(screen, "servers");
+        if (value == null) value = RuntimeAccess.field(screen, "serverList");
+        return value;
+    }
+
+    private static Object createEmptyServerList(Object client) throws Exception {
+        Class<?> type = Class.forName("net.minecraft.client.multiplayer.ServerList");
+        for (Constructor<?> constructor : type.getDeclaredConstructors()) {
+            try { constructor.trySetAccessible(); } catch (Throwable ignored) {}
+            Class<?>[] p = constructor.getParameterTypes();
+            try {
+                if (p.length == 1 && client != null && p[0].isInstance(client)) return constructor.newInstance(client);
+                if (p.length == 0) return constructor.newInstance();
+            } catch (Throwable ignored) {}
+        }
+        throw new IllegalStateException("Unsupported ServerList constructor");
+    }
+
+    private static void addServerData(Object list, Object data) throws Exception {
+        for (Class<?> c = list.getClass(); c != null; c = c.getSuperclass()) {
+            for (Method method : c.getDeclaredMethods()) {
+                if (!method.getName().equals("add") || method.getParameterCount() < 1) continue;
+                Class<?>[] p = method.getParameterTypes();
+                if (!p[0].isInstance(data) && !p[0].isAssignableFrom(data.getClass())) continue;
+                Object[] args = new Object[p.length];
+                args[0] = data;
+                boolean compatible = true;
+                for (int i = 1; i < p.length; i++) {
+                    if (p[i] == boolean.class || p[i] == Boolean.class) args[i] = false;
+                    else if (!p[i].isPrimitive()) args[i] = null;
+                    else { compatible = false; break; }
+                }
+                if (!compatible) continue;
+                try {
+                    method.trySetAccessible();
+                    method.invoke(list, args);
+                    return;
+                } catch (Throwable ignored) {}
+            }
+        }
+        List<Object> backing = mutableServerDataList(list);
+        if (backing == null) throw new IllegalStateException("Could not populate temporary ServerList");
+        backing.add(data);
+    }
+
+    private static Method compatibleOneArgMethod(Class<?> owner, String name, Object value) {
+        for (Class<?> c = owner; c != null; c = c.getSuperclass()) {
+            for (Method method : c.getDeclaredMethods()) {
+                if (!method.getName().equals(name) || method.getParameterCount() != 1) continue;
+                if (value != null && !method.getParameterTypes()[0].isInstance(value)) continue;
+                try { method.trySetAccessible(); } catch (Throwable ignored) {}
+                return method;
+            }
+        }
+        return null;
+    }
+
+    private static List<Object> serverDataList(Object list) {
+        List<Object> backing = mutableServerDataList(list);
+        if (backing != null) return new ArrayList<>(backing);
+        Object sizeValue = RuntimeAccess.invoke(list, "size");
+        if (sizeValue instanceof Number n) {
+            ArrayList<Object> out = new ArrayList<>();
+            for (int i = 0; i < n.intValue(); i++) {
+                Object data = RuntimeAccess.invoke(list, "get", i);
+                if (data != null) out.add(data);
+            }
+            return out;
+        }
+        return List.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Object> mutableServerDataList(Object list) {
+        if (list == null) return null;
+        for (Class<?> c = list.getClass(); c != null; c = c.getSuperclass()) {
+            for (Field field : c.getDeclaredFields()) {
+                if (!List.class.isAssignableFrom(field.getType())) continue;
+                try {
+                    field.trySetAccessible();
+                    Object value = field.get(list);
+                    if (!(value instanceof List<?> raw)) continue;
+                    for (Object element : raw) {
+                        if (element != null && serverData(element) == element) return (List<Object>) raw;
+                    }
+                    // An empty first List field on ServerList is the normal visible
+                    // server list; hiddenServerList follows it.
+                    if (raw.isEmpty() && field.getName().toLowerCase(Locale.ROOT).contains("server")) return (List<Object>) raw;
+                } catch (Throwable ignored) {}
+            }
+        }
+        return null;
+    }
+
     static List<Saved> savedFromEntries(Collection<Object> entries) {
         ArrayList<Saved> out = new ArrayList<>();
         if (entries == null) return out;
@@ -72,27 +210,6 @@ final class ServerListAccess {
         if (list == null) return false;
         for (Object value : list) if (serverData(value) != null) return true;
         return false;
-    }
-
-    static List<Object> filterServerRows(List<Object> source, ServerCategoryStore.Tab tab) {
-        ArrayList<Object> out = new ArrayList<>();
-        if (source == null) return out;
-        for (Object entry : source) {
-            Object data = serverData(entry);
-            if (data == null) {
-                out.add(entry);
-                continue;
-            }
-            String endpoint = endpoint(data);
-            boolean favourite = name(data).startsWith("★ ");
-            boolean include = switch (tab) {
-                case FAVOURITES -> favourite;
-                case SERVERS -> !favourite && !ServerCategoryStore.isScanned(endpoint);
-                case SCANNED -> !favourite && ServerCategoryStore.isScanned(endpoint);
-            };
-            if (include) out.add(entry);
-        }
-        return out;
     }
 
     static Object listWidget(Object screen) {

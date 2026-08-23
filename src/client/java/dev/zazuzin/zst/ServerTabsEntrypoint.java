@@ -8,7 +8,7 @@ import java.util.concurrent.*;
 import java.util.function.Consumer;
 
 /**
- * v0.3.33 release-clean Multiplayer workflow.
+ * v0.3.34 Multiplayer workflow.
  *
  * Multiplayer first opens a lightweight category hub. The vanilla saved-server
  * list is only shown after choosing Favourites / Servers / Scanned Servers.
@@ -35,7 +35,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         try {
             registerScreenWatcher();
             registerPlayWatchers();
-            System.out.println("[Zazu's Server Tool] 0.3.33 release-clean Multiplayer category/options hub enabled.");
+            System.out.println("[Zazu's Server Tool] 0.3.34 Multiplayer category/options hub enabled.");
         } catch (Throwable t) {
             System.err.println("[Zazu's Server Tool] Could not enable Multiplayer category hub: " + root(t));
         }
@@ -86,6 +86,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         // enhancement controls first so they are never mistaken for vanilla/core
         // widgets by the new State.
         State previous = STATES.get(screen);
+        View previousView = previous == null ? View.HUB : previous.view;
         if (previous != null) detachCustomWidgets(previous);
 
         State state = new State(client, screen, width, height);
@@ -105,6 +106,8 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         if (coreAutoJoinEnabled()) {
             seedCoreAutoJoinExclusions(state.saved);
             showCategory(state, ServerCategoryStore.Tab.SCANNED);
+        } else if (previousView != View.HUB) {
+            showCategory(state, tabForView(previousView));
         } else {
             showHub(state);
         }
@@ -115,9 +118,9 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
     }
 
     /**
-     * Creates only controls owned by the category workflow. They are physically
-     * attached to the screen only in views that use them; no custom control is
-     * hidden off-screen or left in the active widget list.
+     * Creates controls owned by the category workflow once. Visibility/activation
+     * is switched per view so Minecraft's children/renderables/narratables lists
+     * stay in sync on 26.2.
      */
     private static void createNavigationControls(State state) throws Exception {
         int buttonWidth = Math.min(300, Math.max(220, state.width / 3));
@@ -151,6 +154,12 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
             if (coreAutoJoinEnabled()) stopCoreAutoJoin(true);
             showHub(state);
         });
+
+        Reflection.addWidget(state.screen, state.favouritesButton);
+        Reflection.addWidget(state.screen, state.serversButton);
+        Reflection.addWidget(state.screen, state.scannedButton);
+        Reflection.addWidget(state.screen, state.backButton);
+        Reflection.addWidget(state.screen, state.categoriesButton);
     }
 
     private static void showHub(State state) {
@@ -201,16 +210,19 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
 
     private static void tick(State state) {
         Object client = RuntimeAccess.minecraftInstance();
-        Object current = RuntimeAccess.field(client, "screen");
-        if (current == null) current = RuntimeAccess.invoke(client, "getScreen");
+        Object current = ScreenCompat.currentScreen(client);
         if (current != null && current != state.screen) return;
 
         if (finderOpen(state.screen)) {
-            detachCustomWidgets(state);
+            setVisibleActive(state.favouritesButton, false, false);
+            setVisibleActive(state.serversButton, false, false);
+            setVisibleActive(state.scannedButton, false, false);
+            setVisibleActive(state.backButton, false, false);
+            setVisibleActive(state.categoriesButton, false, false);
+            setVisibleActive(state.autoJoinButton, false, false);
             return;
         }
 
-        observeVanillaListChanges(state);
         refreshCachedSaved(state, true);
 
         if (state.view != View.HUB) {
@@ -230,148 +242,51 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         updateButtons(state);
     }
 
-    private static void observeVanillaListChanges(State state) {
-        List<Object> current = ServerListAccess.onlineEntries(state.screen);
-        if (current == null) return;
-
-        List<Object> expected = expectedVisibleRows(state);
-        if (sameIdentitySequence(current, expected)) return;
-
-        boolean hasUnknown = containsUnknownIdentity(current, state.fullEntries);
-        if (state.view == View.HUB || hasUnknown) {
-            state.fullEntries = new ArrayList<>(current);
-            refreshCachedSaved(state, false);
-            if (state.view != View.HUB) {
-                applyCategoryRows(state, tabForView(state.view));
-                MultiplayerManagementEntrypoint.rebuildRowButtons(state.screen);
-            }
-            return;
-        }
-
-        // A vanilla/core refresh can remove a currently visible row without
-        // reconstructing every remaining row. Drop only the missing visible rows;
-        // hidden categories remain untouched.
-        Set<Object> currentIdentity = identitySet(current);
-        boolean changed = state.fullEntries.removeIf(entry -> expected.contains(entry) && !currentIdentity.contains(entry));
-        if (changed) {
-            refreshCachedSaved(state, false);
-            if (state.view != View.HUB) {
-                applyCategoryRows(state, tabForView(state.view));
-                MultiplayerManagementEntrypoint.rebuildRowButtons(state.screen);
-            }
-        }
-    }
-
     private static void captureFullRows(State state, boolean migrate) {
-        captureBackingLists(state);
-        List<Object> rows = ServerListAccess.onlineEntries(state.screen);
-        if (rows == null || rows.isEmpty()) rows = largestSavedSnapshot(state);
-        state.fullEntries = rows == null ? new ArrayList<>() : new ArrayList<>(rows);
-        refreshCachedSaved(state, false);
+        state.saved = ServerListAccess.savedFromScreen(state.screen);
+        if (state.saved.isEmpty()) {
+            state.saved = ServerListAccess.savedFromEntries(ServerListAccess.onlineEntries(state.screen));
+        }
         List<String> endpoints = state.saved.stream().map(ServerListAccess.Saved::endpoint).toList();
         if (migrate) ServerCategoryStore.migrateExisting(endpoints);
         ServerCategoryStore.syncNew(endpoints);
         state.lastSignature = ServerListAccess.signature(state.saved);
-    }
-
-    private static void captureBackingLists(State state) {
-        state.backingLists.clear();
-        for (List<Object> list : ServerListAccess.serverEntryLists(state.screen)) {
-            state.backingLists.put(list, new ArrayList<>(list));
-        }
-    }
-
-    private static List<Object> largestSavedSnapshot(State state) {
-        List<Object> best = List.of();
-        int bestCount = -1;
-        for (List<Object> snapshot : state.backingLists.values()) {
-            int count = ServerListAccess.savedFromEntries(snapshot).size();
-            if (count > bestCount) { best = snapshot; bestCount = count; }
-        }
-        return best;
+        lastKnownSaved = List.copyOf(state.saved);
     }
 
     private static void refreshCachedSaved(State state, boolean detectChanges) {
-        state.saved = ServerListAccess.savedFromEntries(state.fullEntries);
-        String signature = ServerListAccess.signature(state.saved);
-        if (!detectChanges || !signature.equals(state.lastSignature)) {
+        List<ServerListAccess.Saved> fresh = ServerListAccess.savedFromScreen(state.screen);
+        if (fresh.isEmpty() && !state.saved.isEmpty()) fresh = state.saved;
+        String signature = ServerListAccess.signature(fresh);
+        boolean changed = !signature.equals(state.lastSignature);
+        state.saved = List.copyOf(fresh);
+        lastKnownSaved = state.saved;
+        if (!detectChanges || changed) {
             state.lastSignature = signature;
             List<String> endpoints = state.saved.stream().map(ServerListAccess.Saved::endpoint).toList();
             ServerCategoryStore.syncNew(endpoints);
-            lastKnownSaved = List.copyOf(state.saved);
             if (detectChanges && state.view != View.HUB) {
                 applyCategoryRows(state, tabForView(state.view));
                 MultiplayerManagementEntrypoint.rebuildRowButtons(state.screen);
             }
-        } else {
-            lastKnownSaved = List.copyOf(state.saved);
         }
     }
 
     private static void restoreFullRows(State state) {
-        syncBackingListReferences(state);
-        boolean restoredAny = false;
-        for (Map.Entry<List<Object>, List<Object>> e : new ArrayList<>(state.backingLists.entrySet())) {
-            List<Object> live = e.getKey(), full = e.getValue();
-            if (sameIdentitySequence(live, full)) continue;
-            try {
-                live.clear();
-                live.addAll(full);
-                restoredAny = true;
-            } catch (Throwable ignored) {}
-        }
-        if (!restoredAny) {
-            List<Object> live = ServerListAccess.onlineEntries(state.screen);
-            if (live != null && !sameIdentitySequence(live, state.fullEntries)) {
-                try { live.clear(); live.addAll(state.fullEntries); }
-                catch (Throwable t) { logOnce(state, "Could not restore full Multiplayer row list", t); }
-            }
+        try {
+            ServerListAccess.applyCategory(state.client, state.screen, null);
+            MultiplayerManagementEntrypoint.rebuildRowButtons(state.screen);
+        } catch (Throwable t) {
+            logOnce(state, "Could not restore full Multiplayer server list", t);
         }
     }
 
     private static void applyCategoryRows(State state, ServerCategoryStore.Tab tab) {
-        syncBackingListReferences(state);
-        boolean filteredAny = false;
-        for (Map.Entry<List<Object>, List<Object>> e : new ArrayList<>(state.backingLists.entrySet())) {
-            List<Object> live = e.getKey();
-            List<Object> filtered = ServerListAccess.filterServerRows(e.getValue(), tab);
-            if (sameIdentitySequence(live, filtered)) { filteredAny = true; continue; }
-            try {
-                live.clear();
-                live.addAll(filtered);
-                filteredAny = true;
-            } catch (Throwable ignored) {}
+        try {
+            ServerListAccess.applyCategory(state.client, state.screen, tab);
+        } catch (Throwable t) {
+            logOnce(state, "Could not rebuild filtered Multiplayer server list", t);
         }
-        if (!filteredAny) {
-            List<Object> live = ServerListAccess.onlineEntries(state.screen);
-            if (live == null) return;
-            List<Object> filtered = filterRows(state.fullEntries, tab);
-            if (sameIdentitySequence(live, filtered)) return;
-            try { live.clear(); live.addAll(filtered); }
-            catch (Throwable t) { logOnce(state, "Could not filter Multiplayer rows", t); }
-        }
-    }
-
-    private static void syncBackingListReferences(State state) {
-        for (List<Object> list : ServerListAccess.serverEntryLists(state.screen)) {
-            if (state.backingLists.containsKey(list)) continue;
-            // A new list object normally means vanilla/core refreshed the screen.
-            // Treat its current contents as the new complete snapshot.
-            state.backingLists.put(list, new ArrayList<>(list));
-            if (ServerListAccess.savedFromEntries(list).size() > ServerListAccess.savedFromEntries(state.fullEntries).size()) {
-                state.fullEntries = new ArrayList<>(list);
-                refreshCachedSaved(state, false);
-            }
-        }
-    }
-
-    private static List<Object> expectedVisibleRows(State state) {
-        if (state.view == View.HUB) return state.fullEntries;
-        return filterRows(state.fullEntries, tabForView(state.view));
-    }
-
-    private static List<Object> filterRows(List<Object> source, ServerCategoryStore.Tab tab) {
-        return ServerListAccess.filterServerRows(source, tab);
     }
 
     /**
@@ -380,69 +295,69 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
      * moved off-screen. Minecraft's own controls keep their original bounds.
      */
     private static void applyLayout(State state) {
-        if (state == null) return;
-
-        if (finderOpen(state.screen)) {
-            detachCustomWidgets(state);
-            return;
-        }
+        if (state == null || finderOpen(state.screen)) return;
 
         List<Object> live = widgets(state.screen);
-        if (live == null) return;
-
-        boolean learnedWidgets = learnBaseWidgets(state, live);
+        boolean learnedWidgets = live != null && learnBaseWidgets(state, live);
         captureMissingOriginalBounds(state);
         boolean layoutNeeded = learnedWidgets || state.appliedView != state.view;
 
-        List<Object> desired = new ArrayList<>();
-        if (state.view == View.HUB) {
-            desired.add(state.favouritesButton);
-            desired.add(state.serversButton);
-            desired.add(state.scannedButton);
+        Object tool = MultiplayerManagementEntrypoint.finderButton(state.screen);
+        Object deleteNonFavourites = MultiplayerManagementEntrypoint.deleteNonFavouritesButton(state.screen);
+        List<Object> rowWidgets = MultiplayerManagementEntrypoint.rowWidgets(state.screen);
 
-            // Reuse the core Server Tool button instead of creating a second proxy.
-            Object tool = MultiplayerManagementEntrypoint.finderButton(state.screen);
-            if (tool != null) desired.add(tool);
-            desired.add(state.backButton);
-            if (layoutNeeded) layoutHub(state, tool);
+        boolean hub = state.view == View.HUB;
+        for (Object widget : state.baseWidgets) {
+            if (widget == null || isCustom(state, widget) || MultiplayerManagementEntrypoint.isManagedWidget(widget)) continue;
+            boolean show = !hub && shouldUseBaseWidget(state, widget);
+            setVisibleActive(widget, show, show);
+        }
+        if (state.listWidget != null) setVisibleActive(state.listWidget, !hub, !hub);
 
-            // Scanned-only control does not exist while the hub is open.
-            state.autoJoinButton = null;
-        } else {
-            for (Object widget : state.baseWidgets) {
-                if (widget == null || isCustom(state, widget) || MultiplayerManagementEntrypoint.isManagedWidget(widget)) continue;
-                if (shouldUseBaseWidget(state, widget)) desired.add(widget);
-            }
+        setVisibleActive(state.favouritesButton, hub, hub);
+        setVisibleActive(state.serversButton, hub, hub);
+        setVisibleActive(state.scannedButton, hub, hub);
+        setVisibleActive(state.categoriesButton, !hub, !hub);
+        setVisibleActive(state.backButton, true, true);
+        setVisibleActive(tool, true, true);
 
-            Object tool = MultiplayerManagementEntrypoint.finderButton(state.screen);
-            if (tool != null) desired.add(tool);
-            if (state.view == View.SERVERS) {
-                Object deleteNonFavourites = MultiplayerManagementEntrypoint.deleteNonFavouritesButton(state.screen);
-                if (deleteNonFavourites != null) desired.add(deleteNonFavourites);
-            }
-            desired.addAll(MultiplayerManagementEntrypoint.rowWidgets(state.screen));
-
-            if (state.listWidget != null && !containsIdentity(desired, state.listWidget)) {
-                desired.add(0, state.listWidget);
-            }
-
-            desired.add(state.categoriesButton);
-            desired.add(state.backButton);
-
-            if (state.view == View.SCANNED) {
-                ensureAutoJoinButton(state);
-                desired.add(state.autoJoinButton);
-                setActive(state.autoJoinButton, autoJoinEligibleTotal() > 0 || coreAutoJoinEnabled());
-            } else {
-                state.autoJoinButton = null;
-            }
-            if (layoutNeeded) layoutCategoryControls(state);
+        boolean serversView = state.view == View.SERVERS;
+        setVisibleActive(deleteNonFavourites, serversView, serversView);
+        if (hub) {
+            for (Object row : rowWidgets) setVisibleActive(row, false, false);
         }
 
-        desired.removeIf(Objects::isNull);
-        dedupeIdentity(desired);
-        replaceWidgetList(state, live, desired);
+        if (state.view == View.SCANNED) {
+            ensureAutoJoinButton(state);
+            boolean eligible = autoJoinEligibleTotal() > 0 || coreAutoJoinEnabled();
+            setVisibleActive(state.autoJoinButton, true, eligible);
+        } else {
+            setVisibleActive(state.autoJoinButton, false, false);
+        }
+
+        // Vanilla Back/Cancel/Done controls are intentionally hidden in category
+        // views. The category workflow owns one Back button, preventing duplicate
+        // buttons and ensuring both Back/Categories return to the hub.
+        if (!hub) {
+            for (Object widget : state.baseWidgets) {
+                String label = widgetLabel(widget).trim();
+                if (label.equals("Back") || label.equals("Cancel") || label.equals("Done")) {
+                    setVisibleActive(widget, false, false);
+                }
+            }
+        }
+
+        if (layoutNeeded) {
+            if (hub) layoutHub(state, tool);
+            else layoutCategoryControls(state);
+        }
         state.appliedView = state.view;
+    }
+
+    private static void setVisibleActive(Object widget, boolean visible, boolean active) {
+        if (widget == null) return;
+        setFieldBoolean(widget, "visible", visible);
+        setFieldBoolean(widget, "active", active);
     }
 
     private static boolean learnBaseWidgets(State state, List<Object> live) {
@@ -476,6 +391,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         try {
             state.autoJoinButton = makeButton(autoJoinLabel(), 0, 0, 130, 20,
                     b -> toggleScannedAutoJoin(state));
+            Reflection.addWidget(state.screen, state.autoJoinButton);
         } catch (Throwable t) {
             logOnce(state, "Could not create Scanned Servers Auto Join control", t);
         }
@@ -483,19 +399,10 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
 
     private static void detachCustomWidgets(State state) {
         if (state == null) return;
-        List<Object> live = widgets(state.screen);
-        if (live == null || live.isEmpty()) return;
-        try { live.removeIf(widget -> isCustom(state, widget)); }
-        catch (Throwable ignored) {}
-    }
-
-    private static void replaceWidgetList(State state, List<Object> live, List<Object> desired) {
-        if (sameIdentitySequence(live, desired)) return;
-        try {
-            live.clear();
-            live.addAll(desired);
-        } catch (Throwable t) {
-            logOnce(state, "Could not rebuild Multiplayer widget layout", t);
+        for (Object widget : Arrays.asList(
+                state.favouritesButton, state.serversButton, state.scannedButton,
+                state.backButton, state.categoriesButton, state.autoJoinButton)) {
+            Reflection.removeWidget(state.screen, widget);
         }
     }
 
@@ -503,11 +410,6 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         if (values == null || target == null) return false;
         for (Object value : values) if (value == target) return true;
         return false;
-    }
-
-    private static void dedupeIdentity(List<Object> values) {
-        Set<Object> seen = Collections.newSetFromMap(new IdentityHashMap<>());
-        values.removeIf(value -> !seen.add(value));
     }
 
     private static void captureOriginalBounds(State state) {
@@ -734,25 +636,6 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         };
     }
 
-    private static Set<Object> identitySet(Collection<Object> values) {
-        Set<Object> set = Collections.newSetFromMap(new IdentityHashMap<>());
-        set.addAll(values);
-        return set;
-    }
-
-    private static boolean containsUnknownIdentity(Collection<Object> current, Collection<Object> known) {
-        Set<Object> set = identitySet(known);
-        for (Object value : current) if (!set.contains(value)) return true;
-        return false;
-    }
-
-    private static boolean sameIdentitySequence(List<Object> a, List<Object> b) {
-        if (a == b) return true;
-        if (a == null || b == null || a.size() != b.size()) return false;
-        for (int i = 0; i < a.size(); i++) if (a.get(i) != b.get(i)) return false;
-        return true;
-    }
-
     private static void captureConnectAttempt(Object connectScreen) {
         String core = RuntimeAccess.staticString(CORE_AUTO_JOIN, "lastAutoJoinEndpoint");
         boolean coreRunning = RuntimeAccess.staticBoolean(CORE_AUTO_JOIN, "joinInProgress", false);
@@ -893,8 +776,6 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         final Map<Object, Bounds> originalBounds = new IdentityHashMap<>();
         Object listWidget;
         Object favouritesButton, serversButton, scannedButton, backButton, categoriesButton, autoJoinButton;
-        final Map<List<Object>, List<Object>> backingLists = new IdentityHashMap<>();
-        List<Object> fullEntries = new ArrayList<>();
         List<ServerListAccess.Saved> saved = List.of();
         String lastSignature = "";
         View view = View.HUB;
