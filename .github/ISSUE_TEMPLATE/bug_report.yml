@@ -1,0 +1,44 @@
+name: Bug report
+description: Report a reproducible problem in Zazu's Server Tool
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Mod version
+      placeholder: 0.3.63
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Minecraft, Fabric Loader and Fabric API versions
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Remove API keys, access tokens and private addresses before attaching logs.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I tested with only one Zazu's Server Tool JAR installed.
+          required: true
+        - label: I removed credentials and private information from attachments.
+          required: true

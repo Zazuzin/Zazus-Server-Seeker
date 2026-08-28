@@ -20,6 +20,8 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
     private static final Set<String> ATTEMPTED = Collections.synchronizedSet(new LinkedHashSet<>());
     private static final Set<Object> CANCEL_WATCHED = Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
     private static final long STABLE_JOIN_MS = 8_000L;
+    private static final long DEFAULT_RATE_LIMIT_COOLDOWN_MS = 10_000L;
+    private static final long RATE_LIMIT_COOLDOWN_MS = loadRateLimitCooldownMs();
 
     private static volatile boolean enabled = loadEnabled();
     private static volatile boolean joinInProgress;
@@ -27,6 +29,8 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
     private static volatile String lastAutoJoinEndpoint = "";
     private static volatile long playEnteredAt;
     private static volatile long endReachedSince;
+    private static volatile boolean returningAfterFailure;
+    private static volatile long rateLimitCooldownUntil;
 
     @Override
     public void onInitializeClient() {
@@ -34,7 +38,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
             registerScreenWatcher();
             registerPlayJoinWatcher();
             registerPlayDisconnectWatcher();
-            System.out.println("[Zazu's Server Tool] 0.3.34 Sequential Auto Join engine ready; current setting: " + (enabled ? "ON" : "OFF"));
+            System.out.println("[Zazu's Server Tool] 0.3.41 Sequential Auto Join engine ready; current setting: " + (enabled ? "ON" : "OFF"));
         } catch (Throwable t) {
             System.err.println("[Zazu's Server Tool] Could not enable Sequential Auto Join:");
             Reflection.unwrap(t).printStackTrace();
@@ -95,7 +99,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
                             onMultiplayerInit(client, screen, ((Number) args[2]).intValue(), ((Number) args[3]).intValue());
                         } else if (Reflection.isScreen(screen, "ConnectScreen")) {
                             onConnectScreen(screen);
-                        } else if (Reflection.isScreen(screen, "DisconnectedScreen")) {
+                        } else if (DisconnectReason.isDisconnectScreen(screen)) {
                             onDisconnected(client, screen);
                         }
                     } catch (Throwable t) {
@@ -110,8 +114,14 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
         // A failed attempt returns to Multiplayer while keeping the attempted set.
         // Clear only the current attempt; the next tick will select the next entry.
         if (joinInProgress) {
-            System.out.println("[Zazu's Server Tool] Auto Join returned to Multiplayer after " + lastAutoJoinEndpoint + "; continuing to the next scanned server.");
-            clearCurrentAttempt();
+            if (returningAfterFailure) {
+                System.out.println("[Zazu's Server Tool] Auto Join returned to Multiplayer after " + lastAutoJoinEndpoint + "; continuing to the next scanned server.");
+                clearCurrentAttempt();
+            } else {
+                // Returning directly from ConnectScreen without a DisconnectedScreen
+                // is the reliable 26.2 signal that the user pressed Cancel.
+                stopPass("Sequential Auto Join stopped because the connection was cancelled.");
+            }
         }
         WatchState state = new WatchState(client, screen);
         registerAfterTick(state);
@@ -233,6 +243,14 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
         if (Reflection.currentScreen(state.client) != state.screen) return;
         if (ServerFinderClient.isOverlayOpen(state.screen)) return;
 
+        long now = System.currentTimeMillis();
+        long cooldownUntil = rateLimitCooldownUntil;
+        if (cooldownUntil > now) return;
+        if (cooldownUntil != 0L) {
+            rateLimitCooldownUntil = 0L;
+            System.out.println("[Zazu's Server Tool] Auto Join rate-limit cooldown finished; resuming scanned servers.");
+        }
+
         SavedServer next = null;
         for (SavedServer server : loadSavedServers(state.client)) {
             if (server.favourite) continue;
@@ -244,7 +262,6 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
         }
 
         if (next == null) {
-            long now = System.currentTimeMillis();
             if (endReachedSince == 0L) {
                 endReachedSince = now;
                 System.out.println("[Zazu's Server Tool] Auto Join found no untried scanned servers; confirming end of list...");
@@ -276,10 +293,50 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
 
     private static void onDisconnected(Object client, Object screen) {
         if (!joinInProgress || lastAutoJoinEndpoint.isBlank()) return;
-        String reason = extractDisconnectReason(screen);
-        String normalized = normalizeReason(reason);
-        System.out.println("[Zazu's Server Tool] Auto Join failed on " + lastAutoJoinEndpoint + " | reason: " + reason + " | moving to next scanned server.");
-        if (isWhitelistRejection(normalized)) return; // whitelist watcher owns forced deletion + return
+        final String endpoint = lastAutoJoinEndpoint;
+        returningAfterFailure = true;
+
+        // Classify immediately, then once more after a short delay. Minecraft
+        // 26.2/ViaFabricPlus can finish populating the DisconnectionDetails text
+        // just after ScreenEvents.AFTER_INIT; returning to Multiplayer too early
+        // used to lose the whitelist reason before it could be deleted.
+        String immediate = DisconnectReason.extract(screen);
+        if (DisconnectReason.isWhitelistRejection(immediate)) {
+            if (!WhitelistAutoDeleteEntrypoint.handleWhitelistFailure(client, screen, endpoint)) {
+                returnToMultiplayer(client, screen);
+            }
+            return;
+        }
+        if (DisconnectReason.isRateLimited(immediate)) {
+            handleRateLimit(client, screen, endpoint, immediate);
+            return;
+        }
+
+        CompletableFuture.delayedExecutor(125, TimeUnit.MILLISECONDS).execute(() -> Reflection.execute(client, () -> {
+            if (!joinInProgress || !endpoint.equals(lastAutoJoinEndpoint)) return;
+            if (Reflection.currentScreen(client) != screen) return;
+
+            String reason = DisconnectReason.extract(screen);
+            System.out.println("[Zazu's Server Tool] Auto Join failed on " + endpoint
+                    + " | reason: " + reason + " | moving to next scanned server.");
+            if (DisconnectReason.isWhitelistRejection(reason)) {
+                if (!WhitelistAutoDeleteEntrypoint.handleWhitelistFailure(client, screen, endpoint)) {
+                    returnToMultiplayer(client, screen);
+                }
+            } else if (DisconnectReason.isRateLimited(reason)) {
+                handleRateLimit(client, screen, endpoint, reason);
+            } else {
+                returnToMultiplayer(client, screen);
+            }
+        }));
+    }
+
+    private static void handleRateLimit(Object client, Object screen, String endpoint, String reason) {
+        rateLimitCooldownUntil = Math.max(rateLimitCooldownUntil, System.currentTimeMillis() + RATE_LIMIT_COOLDOWN_MS);
+        long seconds = Math.max(1L, (RATE_LIMIT_COOLDOWN_MS + 999L) / 1_000L);
+        System.out.println("[Zazu's Server Tool] Auto Join rate limit reached on " + endpoint
+                + " | reason: " + reason
+                + " | waiting " + seconds + " seconds before continuing.");
         returnToMultiplayer(client, screen);
     }
 
@@ -289,6 +346,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
     }
 
     private static void clearCurrentAttempt() {
+        returningAfterFailure = false;
         joinInProgress = false;
         enteredPlay = false;
         lastAutoJoinEndpoint = "";
@@ -310,7 +368,13 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
         lastAutoJoinEndpoint = "";
         playEnteredAt = 0L;
         endReachedSince = 0L;
+        returningAfterFailure = false;
+        rateLimitCooldownUntil = 0L;
         WhitelistAutoDeleteEntrypoint.clearAttempt();
+    }
+
+    static void markReturningAfterFailure() {
+        if (enabled && joinInProgress) returningAfterFailure = true;
     }
 
     private static void prepareViaFabricPlus(String endpoint) {
@@ -365,7 +429,14 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
         Runnable task = () -> {
             try {
                 ScreenCompat.setScreen(client, multiplayer);
-                System.out.println("[Zazu's Server Tool] Auto Join returned to Multiplayer after " + lastAutoJoinEndpoint + "; continuing to the next scanned server.");
+                if (rateLimitCooldownUntil > System.currentTimeMillis()) {
+                    long remainingMs = Math.max(0L, rateLimitCooldownUntil - System.currentTimeMillis());
+                    long remainingSeconds = Math.max(1L, (remainingMs + 999L) / 1_000L);
+                    System.out.println("[Zazu's Server Tool] Auto Join returned to Multiplayer after " + lastAutoJoinEndpoint
+                            + "; rate-limit cooldown active for about " + remainingSeconds + " more seconds.");
+                } else {
+                    System.out.println("[Zazu's Server Tool] Auto Join returned to Multiplayer after " + lastAutoJoinEndpoint + "; continuing to the next scanned server.");
+                }
             } catch (Throwable t) {
                 System.err.println("[Zazu's Server Tool] Could not return to Multiplayer for next Auto Join attempt: " + Reflection.unwrap(t));
                 abandonCurrentAttempt("Return-to-list failed; Auto Join remains ON.");
@@ -386,55 +457,57 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
         return null;
     }
 
-    private static String extractDisconnectReason(Object screen) {
-        Object details = Reflection.getField(screen, "details");
-        if (details != null) {
-            Object value = Reflection.invokeQuiet(details, "reason");
-            String text = RuntimeAccess.componentText(value);
-            if (!text.isBlank()) return text;
-        }
-        for (String name : List.of("reason", "message", "title", "info")) {
-            String text = RuntimeAccess.componentText(Reflection.getField(screen, name));
-            if (!text.isBlank()) return text;
-        }
-        for (String name : List.of("getReason", "getMessage", "getTitle")) {
-            String text = RuntimeAccess.componentText(Reflection.invokeQuiet(screen, name));
-            if (!text.isBlank()) return text;
-        }
-        return "";
-    }
-
-    private static String componentText(Object value) {
-        return RuntimeAccess.componentText(value);
-    }
-
-    private static String normalizeReason(String reason) {
-        return reason == null ? "" : reason.toLowerCase(Locale.ROOT).replace('\n', ' ').replace('-', ' ').trim();
-    }
-
-    private static boolean isWhitelistRejection(String reason) {
-        return reason.contains("whitelist") || reason.contains("white list") || reason.contains("not whitelisted")
-                || reason.contains("not on the whitelist") || reason.contains("not on whitelist");
-    }
-
     private static List<Method> allMethods(Class<?> type) {
         ArrayList<Method> out = new ArrayList<>();
         for (Class<?> c = type; c != null; c = c.getSuperclass()) out.addAll(Arrays.asList(c.getDeclaredMethods()));
         return out;
     }
 
-    private static boolean loadEnabled() {
+    private static Properties loadSettings() {
         Properties p = new Properties();
         Path file = configFile();
         try (InputStream in = Files.exists(file) ? Files.newInputStream(file) : null) {
             if (in != null) p.load(in);
         } catch (Throwable ignored) {}
-        return Boolean.parseBoolean(p.getProperty("enabled", "false"));
+        return p;
+    }
+
+    private static boolean loadEnabled() {
+        return Boolean.parseBoolean(loadSettings().getProperty("enabled", "false"));
+    }
+
+    static String loadTargetCategory() {
+        String value = loadSettings().getProperty("targetCategory", "scanned").trim().toLowerCase(Locale.ROOT);
+        return value.equals("servers") ? "servers" : "scanned";
+    }
+
+    static void saveTargetCategory(String category) {
+        Properties p = loadSettings();
+        p.setProperty("targetCategory", "servers".equalsIgnoreCase(category) ? "servers" : "scanned");
+        p.putIfAbsent("enabled", String.valueOf(enabled));
+        p.putIfAbsent("rateLimitCooldownSeconds", "10");
+        saveSettings(p);
+    }
+
+    private static long loadRateLimitCooldownMs() {
+        String raw = loadSettings().getProperty("rateLimitCooldownSeconds", "10").trim();
+        try {
+            long seconds = Long.parseLong(raw);
+            return Math.max(1L, Math.min(300L, seconds)) * 1_000L;
+        } catch (Throwable ignored) {
+            return DEFAULT_RATE_LIMIT_COOLDOWN_MS;
+        }
     }
 
     private static void saveEnabled(boolean value) {
-        Properties p = new Properties();
+        Properties p = loadSettings();
         p.setProperty("enabled", String.valueOf(value));
+        p.putIfAbsent("rateLimitCooldownSeconds", "10");
+        p.putIfAbsent("targetCategory", "scanned");
+        saveSettings(p);
+    }
+
+    private static void saveSettings(Properties p) {
         Path file = configFile();
         try {
             Files.createDirectories(file.getParent());

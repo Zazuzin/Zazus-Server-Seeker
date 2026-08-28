@@ -4,7 +4,7 @@ import java.lang.reflect.*;
 import java.util.*;
 import java.util.concurrent.*;
 
-/** Adds measured direct-ping latency to the existing Finder result rows. */
+/** Adds latency measured by Finder's bounded Java status client to Finder rows. */
 final class FinderLatencyOverlay {
     private static final String CORE_FINDER = "dev.zazuzin.zst.ServerFinderClient";
     private static final long CACHE_MS = 60_000L;
@@ -12,11 +12,6 @@ final class FinderLatencyOverlay {
     private static final Map<String, Sample> CACHE = new ConcurrentHashMap<>();
     private static final Set<String> IN_FLIGHT = ConcurrentHashMap.newKeySet();
     private static final Set<Object> WATCHED = Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
-    private static final ExecutorService PROBES = Executors.newFixedThreadPool(4, runnable -> {
-        Thread thread = new Thread(runnable, "Zazu-Server-Latency");
-        thread.setDaemon(true);
-        return thread;
-    });
 
     private FinderLatencyOverlay() {}
 
@@ -80,35 +75,51 @@ final class FinderLatencyOverlay {
             if (record == null || button == null) continue;
 
             String endpoint = stringInvoke(record, "endpoint", "");
-            String address = stringInvoke(record, "address", "");
-            int port = intInvoke(record, "port", 25565);
             String version = stringInvoke(record, "version", "?");
             int online = intInvoke(record, "playersOnline", 0);
             int max = intInvoke(record, "playersMax", 0);
-            if (endpoint.isBlank() || address.isBlank()) continue;
+            if (endpoint.isBlank()) continue;
 
-            Sample sample = CACHE.get(endpoint.toLowerCase(Locale.ROOT));
+            String key = endpoint.toLowerCase(Locale.ROOT);
+            Sample sample = CACHE.get(key);
+            long statusLatency = VanillaStatusProbe.cachedLatencyMillis(endpoint);
+            if (statusLatency >= 0L) {
+                sample = new Sample(statusLatency, System.currentTimeMillis());
+                CACHE.put(key, sample);
+            }
             long now = System.currentTimeMillis();
             long ttl = sample != null && sample.latencyMs >= 0 ? CACHE_MS : FAILED_CACHE_MS;
-            if (sample == null || now - sample.at > ttl) requestProbe(endpoint, address, port);
+            if (sample == null || now - sample.at > ttl) requestProbe(screen, state, endpoint);
 
             String latency = sample == null ? "… ms" : sample.latencyMs >= 0 ? sample.latencyMs + " ms" : "? ms";
-            String row = shorten(endpoint, 25) + " | " + latency + " | " + online + "/" + max + " | " + shorten(version, 13) + " | LIVE";
+            String status = sample != null && sample.latencyMs >= 0 ? "LIVE" : "FOUND";
+            String row = shorten(endpoint, 25) + " | " + latency + " | " + online + "/" + max + " | " + shorten(version, 13) + " | " + status;
             RuntimeAccess.setButtonText(button, shorten(row, 62));
         }
     }
 
-    private static void requestProbe(String endpoint, String address, int port) {
+    private static void requestProbe(Object screen, Object finderState, String endpoint) {
         String key = endpoint.toLowerCase(Locale.ROOT);
+        // Provider results are authoritative. Probe one visible row at a time only
+        // to supplement them with latency/live status.
+        if (IN_FLIGHT.size() >= 1) return;
         if (!IN_FLIGHT.add(key)) return;
-        PROBES.execute(() -> {
+        Object client = RuntimeAccess.minecraftInstance();
+        VanillaStatusProbe.probeOne(client, screen, endpoint, () -> finderSessionActive(screen, finderState))
+                .whenComplete((result, error) -> {
             try {
-                long latency = MinecraftStatusProbe.measureLatencyMillis(address, port);
+                long latency = error == null && result != null && result.replied() ? result.latencyMs() : -1L;
                 CACHE.put(key, new Sample(latency, System.currentTimeMillis()));
             } finally {
                 IN_FLIGHT.remove(key);
             }
         });
+    }
+
+    private static boolean finderSessionActive(Object screen, Object expectedState) {
+        Object states = RuntimeAccess.staticField(CORE_FINDER, "STATES");
+        if (!(states instanceof Map<?, ?> map) || map.get(screen) != expectedState) return false;
+        return Boolean.TRUE.equals(RuntimeAccess.field(expectedState, "open"));
     }
 
     private static String stringInvoke(Object target, String method, String fallback) {
