@@ -16,7 +16,7 @@ import java.util.function.*;
  * tolerate mapping/layout changes across the supported 26.2 client stack.
  */
 public final class ServerFinderClient {
-    private static final String USER_AGENT = "ZazusServerTool/0.3.63";
+    private static final String USER_AGENT = "ZazusServerSeeker/0.3.64";
     private static final String BREAKBLOCKS_API_URL = "https://api.breakblocks.com/api/v0.1/servers/find";
     private static final String CORNBREAD_API_URL = "https://api.cornbread2100.com/v1/servers/random";
     private static final String MINESCAN_API_URL = "https://data.minescan.xyz/servers/random";
@@ -704,7 +704,7 @@ public final class ServerFinderClient {
                 try {
                     if (ServerListBridge.add(s.client, r)) {
                         s.autoAddedThisSession++;
-                        System.out.println("[Zazu's Server Tool] Added double-verified server " + r.endpoint());
+                        System.out.println("[Zazu's Server Seeker] Added double-verified server " + r.endpoint());
                     }
                 } catch (Throwable t) { log("Server-list change failed: " + r.endpoint(), t); }
             }
@@ -866,7 +866,7 @@ public final class ServerFinderClient {
         try {
             clearSubView(s); hideMain(s);
             int cx = s.width / 2, x = cx - 210, y = 35;
-            addSubLabel(s, "Zazu's Server Tool Settings", x, y, 420); y += 28;
+            addSubLabel(s, "Zazu's Server Seeker Settings", x, y, 420); y += 28;
             addSub(s, Reflection.makeButton("Skip Added Before: " + onOff(ToolState.skipAddedHistory), x, y, 200, 20, b -> { ToolState.skipAddedHistory = !ToolState.skipAddedHistory; ToolState.save(); showSettings(s); }));
             addSub(s, Reflection.makeButton("Block Deleted: " + onOff(ToolState.blockDeleted), x + 210, y, 200, 20, b -> { ToolState.blockDeleted = !ToolState.blockDeleted; ToolState.save(); showSettings(s); })); y += 24;
             addSub(s, Reflection.makeButton("Favourites First: " + onOff(ToolState.favouritesFirst), x, y, 200, 20, b -> { ToolState.favouritesFirst = !ToolState.favouritesFirst; ToolState.save(); showSettings(s); }));
@@ -988,7 +988,7 @@ public final class ServerFinderClient {
     private static String enc(String value) { return URLEncoder.encode(value, StandardCharsets.UTF_8); }
     private static String shorten(String value, int max) { if (value == null) return ""; return value.length() <= max ? value : value.substring(0, Math.max(0, max - 1)) + "…"; }
     private static String rootMessage(Throwable t) { Throwable x = Reflection.unwrap(t); return x.getMessage() == null ? x.getClass().getSimpleName() : x.getMessage(); }
-    private static void log(String message, Throwable t) { System.err.println("[Zazu's Server Tool] " + message + ": " + Reflection.unwrap(t)); }
+    private static void log(String message, Throwable t) { System.err.println("[Zazu's Server Seeker] " + message + ": " + Reflection.unwrap(t)); }
     private static String blankDefault(String value, String fallback) { return value == null || value.isBlank() ? fallback : value; }
     private static String joinNonBlank(String sep, String... values) {
         List<String> out = new ArrayList<>();

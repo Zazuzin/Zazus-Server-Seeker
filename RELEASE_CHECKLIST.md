@@ -8,7 +8,7 @@
 - [x] Automated GitHub build artifact
 - [ ] Add the chosen open-source licence
 - [x] Add final repository URLs to `fabric.mod.json`
-- [x] No project logo or mod icon included, by design
+- [x] Zazu's Server Seeker logo included in Fabric metadata and README
 - [ ] Test the release JAR in a clean Minecraft 26.2 Fabric instance
 - [ ] Publish the JAR, source ZIP, changelog and SHA-256 checksums
-- [ ] Create a Git tag matching the release version, for example `v0.3.63`
+- [ ] Create a Git tag matching the release version, for example `v0.3.64`

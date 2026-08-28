@@ -306,7 +306,7 @@ final class ServerListAccess {
             }
             return changed;
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] Live Multiplayer server deletion failed for "
+            System.err.println("[Zazu's Server Seeker] Live Multiplayer server deletion failed for "
                     + targetEndpoint + ": " + root(t));
             return false;
         }
@@ -331,7 +331,7 @@ final class ServerListAccess {
             }
             return true;
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] Forced server deletion failed for " + targetEndpoint + ": " + root(t));
+            System.err.println("[Zazu's Server Seeker] Forced server deletion failed for " + targetEndpoint + ": " + root(t));
             return false;
         }
     }
@@ -346,7 +346,7 @@ final class ServerListAccess {
         try {
             return containsFavourite(createLoadedList(client), target);
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] Favourite safety check failed for "
+            System.err.println("[Zazu's Server Seeker] Favourite safety check failed for "
                     + targetEndpoint + ": " + root(t));
             return false;
         }

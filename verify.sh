@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 property() { sed -n "s/^$1=//p" "$ROOT/gradle.properties" | tail -n 1; }
 VERSION="$(property mod_version)"
 MC_VERSION="$(property minecraft_version)"
-JAR="${1:-$ROOT/build/libs/Zazus-Server-Tool-${VERSION}+mc${MC_VERSION}.jar}"
+JAR="${1:-$ROOT/build/libs/Zazus-Server-Seeker-${VERSION}+mc${MC_VERSION}.jar}"
 [[ -f "$JAR" ]] || { echo "JAR not found: $JAR" >&2; exit 1; }
 
 grep -q 'undoLastDeleteButton' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
@@ -16,6 +16,10 @@ grep -q 'setVisibleActive(undoLastDelete, bulkDeleteView' "$ROOT/src/client/java
 }
 
 unzip -t "$JAR" >/dev/null
+
+jar tf "$JAR" | grep -qx 'assets/zazus-server-tool/icon.png' || {
+  echo "Zazu's Server Seeker logo is missing from the JAR" >&2; exit 1;
+}
 
 MOD_JSON="$(unzip -p "$JAR" fabric.mod.json)"
 grep -q '"homepage": "https://github.com/Zazuzin/Zazus-Server-Scanner"' <<<"$MOD_JSON" || {
@@ -583,7 +587,7 @@ public final class ProviderParsingTest {
         if (provider.headers().firstValue("Authorization").isPresent())
             throw new AssertionError("No-key provider unexpectedly received Authorization header");
         String ua = provider.headers().firstValue("User-Agent").orElse("");
-        if (!"ZazusServerTool/0.3.63".equals(ua))
+        if (!"ZazusServerSeeker/0.3.64".equals(ua))
             throw new AssertionError("Provider User-Agent version mismatch: " + ua);
 
         if (!"1.2.3.4".equals(ServerFinderClient.intToIpv4(16909060L)))

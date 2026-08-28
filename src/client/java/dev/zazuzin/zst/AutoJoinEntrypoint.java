@@ -38,9 +38,9 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
             registerScreenWatcher();
             registerPlayJoinWatcher();
             registerPlayDisconnectWatcher();
-            System.out.println("[Zazu's Server Tool] 0.3.41 Sequential Auto Join engine ready; current setting: " + (enabled ? "ON" : "OFF"));
+            System.out.println("[Zazu's Server Seeker] 0.3.41 Sequential Auto Join engine ready; current setting: " + (enabled ? "ON" : "OFF"));
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] Could not enable Sequential Auto Join:");
+            System.err.println("[Zazu's Server Seeker] Could not enable Sequential Auto Join:");
             Reflection.unwrap(t).printStackTrace();
         }
     }
@@ -57,7 +57,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
                     long stamp = System.currentTimeMillis();
                     enteredPlay = true;
                     playEnteredAt = stamp;
-                    System.out.println("[Zazu's Server Tool] Auto Join entered PLAY on " + endpoint + "; waiting 8 seconds for stability.");
+                    System.out.println("[Zazu's Server Seeker] Auto Join entered PLAY on " + endpoint + "; waiting 8 seconds for stability.");
                     CompletableFuture.delayedExecutor(STABLE_JOIN_MS, TimeUnit.MILLISECONDS).execute(() -> {
                         if (enabled && joinInProgress && enteredPlay && playEnteredAt == stamp && endpoint.equals(lastAutoJoinEndpoint)) {
                             stopPass("Sequential Auto Join succeeded on " + endpoint + " after a stable 8-second connection.");
@@ -79,7 +79,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
                     if (duration < STABLE_JOIN_MS) {
                         enteredPlay = false;
                         playEnteredAt = 0L;
-                        System.out.println("[Zazu's Server Tool] Auto Join connection lasted " + duration + "ms on " + lastAutoJoinEndpoint + "; continuing.");
+                        System.out.println("[Zazu's Server Seeker] Auto Join connection lasted " + duration + "ms on " + lastAutoJoinEndpoint + "; continuing.");
                     }
                     return null;
                 });
@@ -103,7 +103,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
                             onDisconnected(client, screen);
                         }
                     } catch (Throwable t) {
-                        System.err.println("[Zazu's Server Tool] Sequential Auto Join screen hook failed:");
+                        System.err.println("[Zazu's Server Seeker] Sequential Auto Join screen hook failed:");
                         Reflection.unwrap(t).printStackTrace();
                     }
                     return null;
@@ -115,7 +115,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
         // Clear only the current attempt; the next tick will select the next entry.
         if (joinInProgress) {
             if (returningAfterFailure) {
-                System.out.println("[Zazu's Server Tool] Auto Join returned to Multiplayer after " + lastAutoJoinEndpoint + "; continuing to the next scanned server.");
+                System.out.println("[Zazu's Server Seeker] Auto Join returned to Multiplayer after " + lastAutoJoinEndpoint + "; continuing to the next scanned server.");
                 clearCurrentAttempt();
             } else {
                 // Returning directly from ConnectScreen without a DisconnectedScreen
@@ -132,10 +132,10 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
         try {
             registerCancelClickWatcher(screen);
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] Could not attach Auto Join Cancel watcher; Auto Join will continue normally.");
+            System.err.println("[Zazu's Server Seeker] Could not attach Auto Join Cancel watcher; Auto Join will continue normally.");
             Reflection.unwrap(t).printStackTrace();
         }
-        System.out.println("[Zazu's Server Tool] Auto Join ConnectScreen active for " + lastAutoJoinEndpoint + "; the actual Cancel button will stop Auto Join.");
+        System.out.println("[Zazu's Server Seeker] Auto Join ConnectScreen active for " + lastAutoJoinEndpoint + "; the actual Cancel button will stop Auto Join.");
     }
 
     private static void registerCancelClickWatcher(Object screen) throws Exception {
@@ -164,7 +164,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
                     stopPass("Sequential Auto Join stopped because the user pressed Cancel.");
                 }
             } catch (Throwable t) {
-                System.err.println("[Zazu's Server Tool] Auto Join Cancel click detection failed; leaving Auto Join running.");
+                System.err.println("[Zazu's Server Seeker] Auto Join Cancel click detection failed; leaving Auto Join running.");
             }
             return Boolean.TRUE;
         });
@@ -231,7 +231,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
             if (method.getDeclaringClass() == Object.class) return Reflection.objectMethod(proxy, method, args);
             try { tick(state); }
             catch (Throwable t) {
-                System.err.println("[Zazu's Server Tool] Sequential Auto Join tick failed: " + Reflection.unwrap(t));
+                System.err.println("[Zazu's Server Seeker] Sequential Auto Join tick failed: " + Reflection.unwrap(t));
             }
             return null;
         });
@@ -248,7 +248,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
         if (cooldownUntil > now) return;
         if (cooldownUntil != 0L) {
             rateLimitCooldownUntil = 0L;
-            System.out.println("[Zazu's Server Tool] Auto Join rate-limit cooldown finished; resuming scanned servers.");
+            System.out.println("[Zazu's Server Seeker] Auto Join rate-limit cooldown finished; resuming scanned servers.");
         }
 
         SavedServer next = null;
@@ -264,7 +264,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
         if (next == null) {
             if (endReachedSince == 0L) {
                 endReachedSince = now;
-                System.out.println("[Zazu's Server Tool] Auto Join found no untried scanned servers; confirming end of list...");
+                System.out.println("[Zazu's Server Seeker] Auto Join found no untried scanned servers; confirming end of list...");
                 return;
             }
             if (now - endReachedSince >= 1_500L) {
@@ -285,7 +285,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
 
         if (connect(state.screen, next.serverData)) {
             int attemptNumber = ServerTabsEntrypoint.autoJoinAttemptedScannedCount();
-            System.out.println("[Zazu's Server Tool] Sequential Auto Join attempting: " + next.endpoint + " (attempt " + attemptNumber + ")");
+            System.out.println("[Zazu's Server Seeker] Sequential Auto Join attempting: " + next.endpoint + " (attempt " + attemptNumber + ")");
         } else {
             abandonCurrentAttempt("Could not start connection to " + next.endpoint + "; continuing.");
         }
@@ -317,7 +317,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
             if (Reflection.currentScreen(client) != screen) return;
 
             String reason = DisconnectReason.extract(screen);
-            System.out.println("[Zazu's Server Tool] Auto Join failed on " + endpoint
+            System.out.println("[Zazu's Server Seeker] Auto Join failed on " + endpoint
                     + " | reason: " + reason + " | moving to next scanned server.");
             if (DisconnectReason.isWhitelistRejection(reason)) {
                 if (!WhitelistAutoDeleteEntrypoint.handleWhitelistFailure(client, screen, endpoint)) {
@@ -334,7 +334,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
     private static void handleRateLimit(Object client, Object screen, String endpoint, String reason) {
         rateLimitCooldownUntil = Math.max(rateLimitCooldownUntil, System.currentTimeMillis() + RATE_LIMIT_COOLDOWN_MS);
         long seconds = Math.max(1L, (RATE_LIMIT_COOLDOWN_MS + 999L) / 1_000L);
-        System.out.println("[Zazu's Server Tool] Auto Join rate limit reached on " + endpoint
+        System.out.println("[Zazu's Server Seeker] Auto Join rate limit reached on " + endpoint
                 + " | reason: " + reason
                 + " | waiting " + seconds + " seconds before continuing.");
         returnToMultiplayer(client, screen);
@@ -342,7 +342,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
 
     private static void abandonCurrentAttempt(String message) {
         clearCurrentAttempt();
-        if (message != null && !message.isBlank()) System.err.println("[Zazu's Server Tool] " + message);
+        if (message != null && !message.isBlank()) System.err.println("[Zazu's Server Seeker] " + message);
     }
 
     private static void clearCurrentAttempt() {
@@ -358,7 +358,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
         enabled = false;
         saveEnabled(false);
         resetRuntimeState();
-        System.out.println("[Zazu's Server Tool] " + message);
+        System.out.println("[Zazu's Server Seeker] " + message);
     }
 
     private static void resetRuntimeState() {
@@ -385,7 +385,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
             String version = ToolState.versionFor(endpoint);
             if (version != null && !version.isBlank()) ViaFabricPlusBridge.setTargetVersion(version);
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] ViaFabricPlus Auto Join preparation skipped: " + Reflection.unwrap(t));
+            System.err.println("[Zazu's Server Seeker] ViaFabricPlus Auto Join preparation skipped: " + Reflection.unwrap(t));
         }
     }
 
@@ -399,7 +399,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
                     m.invoke(multiplayerScreen, serverData);
                     return true;
                 } catch (Throwable t) {
-                    System.err.println("[Zazu's Server Tool] Sequential Auto Join connection start failed: " + Reflection.unwrap(t));
+                    System.err.println("[Zazu's Server Seeker] Sequential Auto Join connection start failed: " + Reflection.unwrap(t));
                     return false;
                 }
             }
@@ -422,7 +422,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
     private static void returnToMultiplayer(Object client, Object disconnectScreen) {
         Object multiplayer = findMultiplayerScreen(disconnectScreen);
         if (multiplayer == null) {
-            System.err.println("[Zazu's Server Tool] Auto Join could not find Multiplayer parent after failed connection.");
+            System.err.println("[Zazu's Server Seeker] Auto Join could not find Multiplayer parent after failed connection.");
             abandonCurrentAttempt("Could not restore Multiplayer automatically; Auto Join remains ON.");
             return;
         }
@@ -432,13 +432,13 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
                 if (rateLimitCooldownUntil > System.currentTimeMillis()) {
                     long remainingMs = Math.max(0L, rateLimitCooldownUntil - System.currentTimeMillis());
                     long remainingSeconds = Math.max(1L, (remainingMs + 999L) / 1_000L);
-                    System.out.println("[Zazu's Server Tool] Auto Join returned to Multiplayer after " + lastAutoJoinEndpoint
+                    System.out.println("[Zazu's Server Seeker] Auto Join returned to Multiplayer after " + lastAutoJoinEndpoint
                             + "; rate-limit cooldown active for about " + remainingSeconds + " more seconds.");
                 } else {
-                    System.out.println("[Zazu's Server Tool] Auto Join returned to Multiplayer after " + lastAutoJoinEndpoint + "; continuing to the next scanned server.");
+                    System.out.println("[Zazu's Server Seeker] Auto Join returned to Multiplayer after " + lastAutoJoinEndpoint + "; continuing to the next scanned server.");
                 }
             } catch (Throwable t) {
-                System.err.println("[Zazu's Server Tool] Could not return to Multiplayer for next Auto Join attempt: " + Reflection.unwrap(t));
+                System.err.println("[Zazu's Server Seeker] Could not return to Multiplayer for next Auto Join attempt: " + Reflection.unwrap(t));
                 abandonCurrentAttempt("Return-to-list failed; Auto Join remains ON.");
             }
         };
@@ -512,10 +512,10 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
         try {
             Files.createDirectories(file.getParent());
             try (OutputStream out = Files.newOutputStream(file)) {
-                p.store(out, "Zazu's Server Tool Sequential Auto Join");
+                p.store(out, "Zazu's Server Seeker Sequential Auto Join");
             }
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] Could not save Auto Join setting: " + Reflection.unwrap(t));
+            System.err.println("[Zazu's Server Seeker] Could not save Auto Join setting: " + Reflection.unwrap(t));
         }
     }
 

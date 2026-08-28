@@ -1,6 +1,8 @@
-# Zazu's Server Tool
+# Zazu's Server Seeker
 
-**Zazu's Server Tool** is a client-side Fabric mod for **Minecraft Java Edition 26.2** that makes discovering, organising and testing multiplayer servers easier from inside Minecraft.
+![Zazu's Server Seeker logo](src/main/resources/assets/zazus-server-tool/icon.png)
+
+**Zazu's Server Seeker** is a client-side Fabric mod for **Minecraft Java Edition 26.2** that makes discovering, organising and testing multiplayer servers easier from inside Minecraft.
 
 The mod adds a multi-source server Finder, separates saved servers into useful categories, provides favourites and management controls, and includes sequential Auto Join for newly scanned servers. It is a standalone Fabric mod and does **not** require Meteor Client.
 
@@ -9,7 +11,7 @@ Bug reports and feature requests: [GitHub Issues](https://github.com/Zazuzin/Zaz
 
 ## Credits
 
-Special thanks to [BreakBlocks](https://breakblocks.com), whose server-discovery service is the backbone of Zazu's Server Tool.
+Special thanks to [BreakBlocks](https://breakblocks.com), whose server-discovery service is the backbone of Zazu's Server Seeker.
 
 Join the [BreakBlocks Discord](https://breakblocks.com/discord) to learn more and connect with its community.
 
@@ -21,7 +23,7 @@ Opening Minecraft's **Multiplayer** screen gives you a category hub with:
 - **Servers** — manually added/existing servers and scanned servers that have been verified by a stable successful join.
 - **Scanned Servers** — servers added through the Finder that have not yet been verified.
 - **Recent Servers** — the last 5 unique saved servers that reached a stable successful join, newest first.
-- **Zazu's Server Tool / Finder** — discovers servers from supported public server databases, verifies them directly with the Minecraft status protocol, and lets you inspect or add them.
+- **Zazu's Server Seeker / Finder** — discovers servers from supported public server databases, verifies them directly with the Minecraft status protocol, and lets you inspect or add them.
 
 The categories are views over Minecraft's normal `servers.dat`; the mod stores classification metadata separately rather than creating duplicate server databases.
 
@@ -62,7 +64,7 @@ The Finder source is selected from **Settings → Finder Source**.
 
 For BreakBlocks, **Settings → BreakBlocks Age** controls how recently a server must have been pinged by BreakBlocks. Available values are **1, 7, 14, 21 and 30 days**, with **30 days** as the default.
 
-Provider data is treated as discovery input rather than proof that a server is currently usable. Zazu's Server Tool requires two successful bounded pure-Java Minecraft status requests, roughly one second apart, before showing or Auto Adding a candidate. Known provider-reported whitelisted servers are skipped before that verification.
+Provider data is treated as discovery input rather than proof that a server is currently usable. Zazu's Server Seeker requires two successful bounded pure-Java Minecraft status requests, roughly one second apart, before showing or Auto Adding a candidate. Known provider-reported whitelisted servers are skipped before that verification.
 
 External providers have their own availability and rate limits. A provider outage therefore does not necessarily make the Finder unavailable when **Auto** or **All Sources** is selected.
 
@@ -80,7 +82,7 @@ External providers have their own availability and rate limits. A provider outag
 2. Install the matching **Fabric API**.
 3. Build the JAR from this repository.
 4. Put the JAR in the Minecraft instance's `mods` folder.
-5. Remove any older Zazu's Server Tool JAR so only one version is installed.
+5. Remove any older Zazu's Server Seeker JAR so only one version is installed.
 6. Start Minecraft using the Fabric profile / Fabric-enabled launcher instance.
 7. Open **Multiplayer** to access the category hub and Finder.
 
@@ -89,7 +91,7 @@ Example:
 ```text
 mods/
 ├── fabric-api-0.157.0+26.2.jar
-├── Zazus-Server-Tool-0.3.63+mc26.2.jar
+├── Zazus-Server-Seeker-0.3.64+mc26.2.jar
 └── ViaFabricPlus-4.6.1.jar        # optional
 ```
 
@@ -109,7 +111,7 @@ Set:
 breakBlocksApiKey=YOUR_API_KEY
 ```
 
-The key is sent only in the HTTP `Authorization: Bearer ...` header. It is not bundled in the mod, placed in request URLs, or written to Zazu's Server Tool log messages.
+The key is sent only in the HTTP `Authorization: Bearer ...` header. It is not bundled in the mod, placed in request URLs, or written to Zazu's Server Seeker log messages.
 
 If BreakBlocks rejects a configured key with HTTP 401/403, its request is retried anonymously. If BreakBlocks is unavailable or rate-limited while **Auto** or **All Sources** is selected, the Finder can continue with another provider.
 
@@ -137,7 +139,7 @@ Finder-added servers begin here. **Auto Join** is available here and in Servers;
 
 ## Building from source
 
-The repository contains the complete readable source and does not require a prebuilt Zazu's Server Tool JAR.
+The repository contains the complete readable source and does not require a prebuilt Zazu's Server Seeker JAR.
 
 For the verified dependency-free release build, JDK 21+ is sufficient:
 
@@ -149,7 +151,7 @@ For the verified dependency-free release build, JDK 21+ is sufficient:
 Output:
 
 ```text
-build/libs/Zazus-Server-Tool-0.3.63+mc26.2.jar
+build/libs/Zazus-Server-Seeker-0.3.64+mc26.2.jar
 ```
 
 The release classes intentionally target Java 21 bytecode. Minecraft 26.2 itself uses a newer Java runtime.
@@ -162,8 +164,8 @@ gradle build
 
 ## Project identity
 
-- **Mod:** Zazu's Server Tool
+- **Mod:** Zazu's Server Seeker
 - **Mod ID:** `zazus-server-tool`
 - **Package:** `dev.zazuzin.zst`
 - **Author:** Zazuzin
-- **Current source version:** 0.3.63
+- **Current source version:** 0.3.64

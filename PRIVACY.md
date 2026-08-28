@@ -1,6 +1,6 @@
 # Privacy
 
-Zazu's Server Tool is a client-side Minecraft mod. It does not include analytics, advertising, telemetry or a developer-operated tracking service.
+Zazu's Server Seeker is a client-side Minecraft mod. It does not include analytics, advertising, telemetry or a developer-operated tracking service.
 
 ## Network activity
 

@@ -2,9 +2,10 @@
   "schemaVersion": 1,
   "id": "zazus-server-tool",
   "version": "${version}",
-  "name": "Zazu's Server Tool",
+  "name": "Zazu's Server Seeker",
   "description": "Client-side Minecraft server discovery and management with categories, favourites, verified scanning, sequential Auto Join, deletion recovery and optional ViaFabricPlus integration.",
   "authors": ["Zazuzin"],
+  "icon": "assets/zazus-server-tool/icon.png",
   "contact": {
     "homepage": "https://github.com/Zazuzin/Zazus-Server-Scanner",
     "sources": "https://github.com/Zazuzin/Zazus-Server-Scanner",

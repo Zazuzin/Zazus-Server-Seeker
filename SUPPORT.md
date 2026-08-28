@@ -2,7 +2,7 @@
 
 Before reporting a problem:
 
-1. Remove older copies so only one Zazu's Server Tool JAR is installed.
+1. Remove older copies so only one Zazu's Server Seeker JAR is installed.
 2. Confirm Minecraft 26.2, Fabric Loader and the matching Fabric API are being used.
 3. Reproduce once with the newest release.
 4. Attach the relevant section of `logs/latest.log` with API keys, access tokens and private addresses removed.

@@ -47,7 +47,7 @@ final class ToolState {
                 }
             }
         } catch (Exception ex) {
-            System.err.println("[Zazu's Server Tool] Could not load settings: " + ex);
+            System.err.println("[Zazu's Server Seeker] Could not load settings: " + ex);
         }
 
         skipAddedHistory = bool(p, "skipAddedHistory", true);
@@ -110,11 +110,11 @@ final class ToolState {
         try {
             Files.createDirectories(CONFIG_DIR);
             try (BufferedWriter writer = Files.newBufferedWriter(FILE, StandardCharsets.UTF_8)) {
-                p.store(writer, "Zazu's Server Tool");
+                p.store(writer, "Zazu's Server Seeker");
             }
             restrictConfigPermissions();
         } catch (Exception ex) {
-            System.err.println("[Zazu's Server Tool] Could not save settings: " + ex);
+            System.err.println("[Zazu's Server Seeker] Could not save settings: " + ex);
         }
     }
 
@@ -267,7 +267,7 @@ final class ToolState {
             p.load(reader);
             return p.getProperty("breakBlocksApiKey", "").trim();
         } catch (Exception ex) {
-            System.err.println("[Zazu's Server Tool] Could not reload BreakBlocks API-key setting: " + ex.getClass().getSimpleName());
+            System.err.println("[Zazu's Server Seeker] Could not reload BreakBlocks API-key setting: " + ex.getClass().getSimpleName());
             return null;
         }
     }
@@ -278,7 +278,7 @@ final class ToolState {
         } catch (UnsupportedOperationException ignored) {
             // Non-POSIX platform (for example Windows).
         } catch (Exception ex) {
-            System.err.println("[Zazu's Server Tool] Could not tighten config-file permissions: " + ex.getClass().getSimpleName());
+            System.err.println("[Zazu's Server Seeker] Could not tighten config-file permissions: " + ex.getClass().getSimpleName());
         }
     }
 

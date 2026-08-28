@@ -15,9 +15,9 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
     public void onInitializeClient() {
         try {
             registerGlobalAfterInit();
-            System.out.println("[Zazu's Server Tool] 0.3.41 multiplayer management hook registered.");
+            System.out.println("[Zazu's Server Seeker] 0.3.41 multiplayer management hook registered.");
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] 0.3.41 failed to register: " + Reflection.unwrap(t));
+            System.err.println("[Zazu's Server Seeker] 0.3.41 failed to register: " + Reflection.unwrap(t));
         }
     }
 
@@ -34,7 +34,7 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
                         int height = args[3] instanceof Number n ? n.intValue() : Reflection.screenHeight(screen, 480);
                         if (Reflection.isScreen(screen, "JoinMultiplayerScreen")) {
                             try { installMultiplayerControls(client, screen, width, height); }
-                            catch (Throwable t) { System.err.println("[Zazu's Server Tool] Multiplayer UI setup failed: " + Reflection.unwrap(t)); }
+                            catch (Throwable t) { System.err.println("[Zazu's Server Seeker] Multiplayer UI setup failed: " + Reflection.unwrap(t)); }
                         }
                     }
                     return null;
@@ -50,10 +50,10 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
 
         if (ToolState.favouritesFirst) {
             try { sortSavedServersFavouritesFirst(client); }
-            catch (Throwable t) { System.err.println("[Zazu's Server Tool] Favourites-first sorting skipped: " + Reflection.unwrap(t)); }
+            catch (Throwable t) { System.err.println("[Zazu's Server Seeker] Favourites-first sorting skipped: " + Reflection.unwrap(t)); }
         }
 
-        state.finderButton = Reflection.makeButton("Zazu's Server Tool", 6, Math.max(6, height - 28), 170, 20,
+        state.finderButton = Reflection.makeButton("Zazu's Server Seeker", 6, Math.max(6, height - 28), 170, 20,
                 b -> openFinder(state));
         Reflection.addWidget(screen, state.finderButton);
         MANAGED_WIDGETS.add(state.finderButton);
@@ -72,7 +72,7 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         createPerServerButtons(state);
         registerRowButtonMouseInterceptor(state);
         registerAfterTick(state);
-        System.out.println("[Zazu's Server Tool] 0.3.41 multiplayer controls installed. ViaFabricPlus integration: " + (ViaFabricPlusBridge.isAvailable() ? "available" : "not installed"));
+        System.out.println("[Zazu's Server Seeker] 0.3.41 multiplayer controls installed. ViaFabricPlus integration: " + (ViaFabricPlusBridge.isAvailable() ? "available" : "not installed"));
     }
 
     private static void detachManagedWidgets(MultiplayerState state) {
@@ -167,7 +167,7 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
                     }
                 }
             } catch (Throwable t) {
-                System.err.println("[Zazu's Server Tool] Row click handling failed: " + Reflection.unwrap(t));
+                System.err.println("[Zazu's Server Seeker] Row click handling failed: " + Reflection.unwrap(t));
             }
             return Boolean.TRUE;
         });
@@ -228,7 +228,7 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
             } catch (Throwable t) {
                 if (!state.loggedTickFailure) {
                     state.loggedTickFailure = true;
-                    System.err.println("[Zazu's Server Tool] Row button update failed: " + Reflection.unwrap(t));
+                    System.err.println("[Zazu's Server Seeker] Row button update failed: " + Reflection.unwrap(t));
                 }
             }
             return null;
@@ -451,9 +451,9 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
                 ServerTabsEntrypoint.requestViewAfterRefresh(state.screen, ServerCategoryStore.Tab.FAVOURITES);
             }
             refreshMultiplayerScreen(state.client, state.screen);
-            System.out.println("[Zazu's Server Tool] Favourite toggled for " + sb.endpoint);
+            System.out.println("[Zazu's Server Seeker] Favourite toggled for " + sb.endpoint);
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] Favourite toggle failed: " + Reflection.unwrap(t));
+            System.err.println("[Zazu's Server Seeker] Favourite toggle failed: " + Reflection.unwrap(t));
         }
     }
 
@@ -462,15 +462,15 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
             Object list = ServerFinderClient.ServerListBridge.createLoadedList(state.client);
             Object server = ServerFinderClient.ServerListBridge.findServer(list, sb.endpoint);
             if (server != null && isFavourite(server)) {
-                System.out.println("[Zazu's Server Tool] Delete blocked for favourite " + sb.endpoint);
+                System.out.println("[Zazu's Server Seeker] Delete blocked for favourite " + sb.endpoint);
                 return;
             }
             if (ServerFinderClient.ServerListBridge.remove(state.client, sb.endpoint)) {
                 refreshMultiplayerScreen(state.client, state.screen);
-                System.out.println("[Zazu's Server Tool] Quick deleted " + sb.endpoint);
+                System.out.println("[Zazu's Server Seeker] Quick deleted " + sb.endpoint);
             }
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] Quick delete failed: " + Reflection.unwrap(t));
+            System.err.println("[Zazu's Server Seeker] Quick delete failed: " + Reflection.unwrap(t));
         }
     }
 
@@ -502,10 +502,10 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
             }
             ServerFinderClient.ServerListBridge.save(list);
             refreshMultiplayerScreen(state.client, state.screen);
-            System.out.println("[Zazu's Server Tool] Deleted " + deleted
+            System.out.println("[Zazu's Server Seeker] Deleted " + deleted
                     + (state.scannedDeleteMode ? " scanned servers." : " non-favourite servers."));
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] Bulk delete failed: " + Reflection.unwrap(t));
+            System.err.println("[Zazu's Server Seeker] Bulk delete failed: " + Reflection.unwrap(t));
         }
     }
 
@@ -520,7 +520,7 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
 
     private static String healthLabel(String endpoint) { int failures=ServerCategoryStore.healthFailures(endpoint); return failures==0?"H OK":"H "+failures+"/3"; }
     private static void undoLastDelete(MultiplayerState state) {
-        if (ServerCategoryStore.undoLastDelete(state.client)) { refreshMultiplayerScreen(state.client,state.screen); System.out.println("[Zazu's Server Tool] Restored last deleted server."); }
+        if (ServerCategoryStore.undoLastDelete(state.client)) { refreshMultiplayerScreen(state.client,state.screen); System.out.println("[Zazu's Server Seeker] Restored last deleted server."); }
     }
 
     private static void updateDeleteAllConfirmation(MultiplayerState state) {
@@ -532,7 +532,7 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
 
     private static void openFinder(MultiplayerState state) {
         try { ServerFinderClient.openOverlay(state.client, state.screen, state.width, state.height); }
-        catch (Throwable t) { System.err.println("[Zazu's Server Tool] Could not open finder: " + Reflection.unwrap(t)); }
+        catch (Throwable t) { System.err.println("[Zazu's Server Seeker] Could not open finder: " + Reflection.unwrap(t)); }
     }
 
     private static void sortSavedServersFavouritesFirst(Object client) throws Exception {
@@ -560,7 +560,7 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         } catch (Throwable t) {
             if (!state.loggedViaFailure) {
                 state.loggedViaFailure = true;
-                System.err.println("[Zazu's Server Tool] ViaFabricPlus selection sync failed: " + Reflection.unwrap(t));
+                System.err.println("[Zazu's Server Seeker] ViaFabricPlus selection sync failed: " + Reflection.unwrap(t));
             }
         }
     }
@@ -581,7 +581,7 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
                 refresh.invoke(screen);
                 ServerTabsEntrypoint.reapplyCurrentView(screen);
                 rebuildRowButtons(screen);
-                System.out.println("[Zazu's Server Tool] Vanilla Multiplayer Refresh invoked and current category reapplied.");
+                System.out.println("[Zazu's Server Seeker] Vanilla Multiplayer Refresh invoked and current category reapplied.");
                 return;
             }
         } catch (Throwable ignored) {}
