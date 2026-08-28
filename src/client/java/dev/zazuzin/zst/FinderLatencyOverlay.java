@@ -29,7 +29,7 @@ final class FinderLatencyOverlay {
             });
             RuntimeAccess.registerEvent(event, listener);
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] Finder latency unavailable: " + root(t));
+            System.err.println("[Zazu's Server Seeker] Finder latency unavailable: " + root(t));
         }
     }
 
@@ -141,7 +141,7 @@ final class FinderLatencyOverlay {
     private static void logOnce(String message, Throwable t) {
         if (logged) return;
         logged = true;
-        System.err.println("[Zazu's Server Tool] " + message + ": " + root(t));
+        System.err.println("[Zazu's Server Seeker] " + message + ": " + root(t));
     }
 
     private static Throwable root(Throwable t) {

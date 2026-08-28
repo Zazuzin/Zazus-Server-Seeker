@@ -33,7 +33,7 @@ final class ServerCategoryStore {
                 try (BufferedReader r = Files.newBufferedReader(file, StandardCharsets.UTF_8)) { p.load(r); }
             }
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] Could not load server-tab state: " + t);
+            System.err.println("[Zazu's Server Seeker] Could not load server-tab state: " + t);
         }
         migrated = Boolean.parseBoolean(p.getProperty("migrated", "false"));
         decode(p.getProperty("known", ""), KNOWN);
@@ -58,7 +58,7 @@ final class ServerCategoryStore {
         // Existing 0.3.22 entries are treated as already-established Servers.
         migrated = true;
         save();
-        System.out.println("[Zazu's Server Tool] Multiplayer tabs migration complete; existing servers kept in Servers/Favourites.");
+        System.out.println("[Zazu's Server Seeker] Multiplayer tabs migration complete; existing servers kept in Servers/Favourites.");
     }
 
     /**
@@ -141,7 +141,7 @@ final class ServerCategoryStore {
             setFavourite(undo.endpoint,undo.favourite);
             if (undo.scanned) markScanned(undo.endpoint); else promoteVerified(undo.endpoint);
             undo=null; save(); return true;
-        } catch (Throwable t) { System.err.println("[Zazu's Server Tool] Undo failed: "+t); return false; }
+        } catch (Throwable t) { System.err.println("[Zazu's Server Seeker] Undo failed: "+t); return false; }
     }
 
     static synchronized void migrateFavourite(String endpoint, boolean starredName) {
@@ -156,7 +156,7 @@ final class ServerCategoryStore {
         boolean changed = SCANNED.remove(e);
         if (changed) {
             save();
-            System.out.println("[Zazu's Server Tool] Verified server promoted from Scanned Servers to Servers: " + endpoint);
+            System.out.println("[Zazu's Server Seeker] Verified server promoted from Scanned Servers to Servers: " + endpoint);
         }
         return changed;
     }
@@ -177,7 +177,7 @@ final class ServerCategoryStore {
         }
         if (changed) {
             save();
-            System.out.println("[Zazu's Server Tool] Added to Recent Servers: " + endpoint);
+            System.out.println("[Zazu's Server Seeker] Added to Recent Servers: " + endpoint);
         }
     }
 
@@ -241,10 +241,10 @@ final class ServerCategoryStore {
         try {
             Files.createDirectories(file.getParent());
             try (BufferedWriter w = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
-                p.store(w, "Zazu's Server Tool multiplayer tabs");
+                p.store(w, "Zazu's Server Seeker multiplayer tabs");
             }
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] Could not save server-tab state: " + t);
+            System.err.println("[Zazu's Server Seeker] Could not save server-tab state: " + t);
         }
     }
 
@@ -290,7 +290,7 @@ final class ServerCategoryStore {
             Path dir=resolveConfigDir().resolve("zazus-server-tool-backups"); Files.createDirectories(dir);
             Files.copy(source,dir.resolve("servers-"+System.currentTimeMillis()+"-"+Math.abs(System.nanoTime())+".dat"));
             try(var files=Files.list(dir)){ List<Path> all=files.filter(Files::isRegularFile).sorted(Comparator.reverseOrder()).toList(); for(int i=10;i<all.size();i++) Files.deleteIfExists(all.get(i)); }
-        } catch(Throwable t){ System.err.println("[Zazu's Server Tool] Server-list backup failed: "+t); }
+        } catch(Throwable t){ System.err.println("[Zazu's Server Seeker] Server-list backup failed: "+t); }
     }
     private record Health(int failures,long lastSuccess,long lastFailure){ static final Health EMPTY=new Health(0,0,0); }
     private record Undo(String name,String endpoint,boolean favourite,boolean scanned){}

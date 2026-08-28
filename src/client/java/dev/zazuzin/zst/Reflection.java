@@ -123,7 +123,7 @@ final class Reflection {
 
     static Object objectMethod(Object proxy, Method method, Object[] args) {
         return switch (method.getName()) {
-            case "toString" -> "ZazusServerToolCallback@" + Integer.toHexString(System.identityHashCode(proxy));
+            case "toString" -> "ZazusServerSeekerCallback@" + Integer.toHexString(System.identityHashCode(proxy));
             case "hashCode" -> System.identityHashCode(proxy);
             case "equals" -> proxy == (args == null || args.length == 0 ? null : args[0]);
             default -> null;

@@ -51,14 +51,14 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         try {
             registerScreenWatcher();
             registerPlayWatchers();
-            System.out.println("[Zazu's Server Tool] 0.3.41 Multiplayer category/options hub enabled.");
-            System.out.println("[Zazu's Server Tool] 0.3.52 Scanned Servers health cleanup enabled (3 failed status checks).");
-            System.out.println("[Zazu's Server Tool] 0.3.54 Recent Servers history enabled (last 5 stable joins).");
-            System.out.println("[Zazu's Server Tool] 0.3.55 whitelist deletion now removes the live Servers-tab source before returning.");
-            System.out.println("[Zazu's Server Tool] 0.3.56 pause-menu Favourite Server control enabled.");
-            System.out.println("[Zazu's Server Tool] 0.3.57 Auto Join enabled for Servers and Scanned Servers; favourites remain excluded.");
+            System.out.println("[Zazu's Server Seeker] 0.3.41 Multiplayer category/options hub enabled.");
+            System.out.println("[Zazu's Server Seeker] 0.3.52 Scanned Servers health cleanup enabled (3 failed status checks).");
+            System.out.println("[Zazu's Server Seeker] 0.3.54 Recent Servers history enabled (last 5 stable joins).");
+            System.out.println("[Zazu's Server Seeker] 0.3.55 whitelist deletion now removes the live Servers-tab source before returning.");
+            System.out.println("[Zazu's Server Seeker] 0.3.56 pause-menu Favourite Server control enabled.");
+            System.out.println("[Zazu's Server Seeker] 0.3.57 Auto Join enabled for Servers and Scanned Servers; favourites remain excluded.");
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] Could not enable Multiplayer category hub: " + root(t));
+            System.err.println("[Zazu's Server Seeker] Could not enable Multiplayer category hub: " + root(t));
         }
     }
 
@@ -76,7 +76,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
                 else if (RuntimeAccess.isScreen(screen, "ConnectScreen")) captureConnectAttempt(screen);
                 else if (isPauseMenu(screen)) onPauseMenuInit(client, screen, width, height);
             } catch (Throwable t) {
-                System.err.println("[Zazu's Server Tool] Multiplayer category screen hook failed: " + root(t));
+                System.err.println("[Zazu's Server Seeker] Multiplayer category screen hook failed: " + root(t));
             }
             return null;
         });
@@ -123,10 +123,10 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
                 try {
                     boolean nowFavourite = MultiplayerManagementEntrypoint.toggleFavouriteEndpoint(client, endpoint, displayName);
                     Reflection.setButtonText(holder[0], pauseFavouriteLabel(nowFavourite));
-                    System.out.println("[Zazu's Server Tool] Pause-menu favourite "
+                    System.out.println("[Zazu's Server Seeker] Pause-menu favourite "
                             + (nowFavourite ? "enabled for " : "removed from ") + endpoint);
                 } catch (Throwable t) {
-                    System.err.println("[Zazu's Server Tool] Pause-menu favourite toggle failed: " + root(t));
+                    System.err.println("[Zazu's Server Seeker] Pause-menu favourite toggle failed: " + root(t));
                 }
             });
             holder[0] = button;
@@ -138,7 +138,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
             PAUSE_EDIT_BUTTONS.put(screen, edit);
             Reflection.addWidget(screen, edit);
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] Could not add pause-menu Favourite Server button: " + root(t));
+            System.err.println("[Zazu's Server Seeker] Could not add pause-menu Favourite Server button: " + root(t));
         }
     }
 
@@ -183,7 +183,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
                         ServerFinderClient.ServerListBridge.save(list);
                         ServerCategoryStore.moveEndpoint(originalEndpoint, updatedEndpoint);
                         ServerCategoryStore.setFavourite(updatedEndpoint, favourite);
-                        System.out.println("[Zazu's Server Tool] Updated connected server info: "
+                        System.out.println("[Zazu's Server Seeker] Updated connected server info: "
                                 + originalEndpoint + " -> " + updatedEndpoint);
                     }
                     ScreenCompat.setScreen(client, pauseScreen);
@@ -198,7 +198,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
             if (editScreen == null) throw new IllegalStateException("Minecraft EditServerScreen constructor was not compatible.");
             ScreenCompat.setScreen(client, editScreen);
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] Could not open pause-menu server editor: " + root(t));
+            System.err.println("[Zazu's Server Seeker] Could not open pause-menu server editor: " + root(t));
         }
     }
 
@@ -299,7 +299,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         }
 
         registerAfterTick(state);
-        System.out.println("[Zazu's Server Tool] Multiplayer category hub installed on "
+        System.out.println("[Zazu's Server Seeker] Multiplayer category hub installed on "
                 + screen.getClass().getName() + " at " + width + "x" + height + ".");
     }
 
@@ -536,7 +536,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
             try { tick(state); } catch (Throwable t) {
                 if (!state.loggedFailure) {
                     state.loggedFailure = true;
-                    System.err.println("[Zazu's Server Tool] Multiplayer category tick failed: " + root(t));
+                    System.err.println("[Zazu's Server Seeker] Multiplayer category tick failed: " + root(t));
                 }
             }
             return null;
@@ -650,7 +650,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
                     ServerCategoryStore.recordHealthSuccess(endpoint);
                     Integer previous = SCANNED_HEALTH_FAILURES.remove(key);
                     if (previous != null && previous > 0) {
-                        System.out.println("[Zazu's Server Tool] Scanned health recovered: " + endpoint
+                        System.out.println("[Zazu's Server Seeker] Scanned health recovered: " + endpoint
                                 + " (failure streak reset from " + previous + ").");
                     }
                     continue;
@@ -662,7 +662,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
 
                 int failures = ServerCategoryStore.recordHealthFailure(endpoint);
                 SCANNED_HEALTH_FAILURES.put(key, failures);
-                System.out.println("[Zazu's Server Tool] Scanned health failed " + failures + "/"
+                System.out.println("[Zazu's Server Seeker] Scanned health failed " + failures + "/"
                         + SCANNED_FAILURES_BEFORE_DELETE + ": " + endpoint
                         + " (" + result.failure() + ").");
 
@@ -674,7 +674,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
 
                 if (ServerListAccess.isFavouriteEndpoint(state.client, state.screen, endpoint)) {
                     SCANNED_HEALTH_FAILURES.remove(key);
-                    System.out.println("[Zazu's Server Tool] Kept favourite after failed scanned health checks: " + endpoint);
+                    System.out.println("[Zazu's Server Seeker] Kept favourite after failed scanned health checks: " + endpoint);
                     continue;
                 }
 
@@ -682,7 +682,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
                     ServerCategoryStore.remove(endpoint);
                     SCANNED_HEALTH_FAILURES.remove(key);
                     deleted++;
-                    System.out.println("[Zazu's Server Tool] Auto-deleted unreachable scanned server after "
+                    System.out.println("[Zazu's Server Seeker] Auto-deleted unreachable scanned server after "
                             + SCANNED_FAILURES_BEFORE_DELETE + " failed checks: " + endpoint);
                 }
             }
@@ -1023,7 +1023,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
             setStaticBoolean(CORE_AUTO_JOIN, "enabled", true);
             RuntimeAccess.invokeStatic(CORE_AUTO_JOIN, "saveEnabled", true);
             seedCoreAutoJoinExclusions(state.saved);
-            System.out.println("[Zazu's Server Tool] Auto Join started for " + autoJoinViewLabel()
+            System.out.println("[Zazu's Server Seeker] Auto Join started for " + autoJoinViewLabel()
                     + " (" + eligible + " eligible; favourites excluded).");
         }
         RuntimeAccess.setButtonText(state.autoJoinButton, autoJoinLabel());
@@ -1068,7 +1068,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         setStaticBoolean(CORE_AUTO_JOIN, "enabled", false);
         RuntimeAccess.invokeStatic(CORE_AUTO_JOIN, "saveEnabled", false);
         RuntimeAccess.invokeStatic(CORE_AUTO_JOIN, "resetRuntimeState");
-        if (log) System.out.println("[Zazu's Server Tool] Auto Join stopped for " + autoJoinViewLabel() + ".");
+        if (log) System.out.println("[Zazu's Server Seeker] Auto Join stopped for " + autoJoinViewLabel() + ".");
     }
 
     private static String autoJoinLabel() {
@@ -1188,13 +1188,13 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         final String candidate = endpoint;
         final boolean scannedCandidate = ServerCategoryStore.isScanned(candidate);
         final long generation = ++playGeneration;
-        System.out.println("[Zazu's Server Tool] " + candidate
+        System.out.println("[Zazu's Server Seeker] " + candidate
                 + " entered PLAY; verifying for 8 seconds before recording successful join.");
         CompletableFuture.delayedExecutor(STABLE_JOIN_MS, TimeUnit.MILLISECONDS).execute(() -> {
             if (playGeneration != generation) return;
             ServerCategoryStore.recordSuccessfulJoin(candidate);
             if (scannedCandidate && ServerCategoryStore.promoteVerified(candidate)) {
-                System.out.println("[Zazu's Server Tool] Stable connection verified; moved to Servers: " + candidate);
+                System.out.println("[Zazu's Server Seeker] Stable connection verified; moved to Servers: " + candidate);
             }
         });
     }
@@ -1269,7 +1269,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
     private static void logOnce(State state, String message, Throwable t) {
         if (state.loggedFailure) return;
         state.loggedFailure = true;
-        System.err.println("[Zazu's Server Tool] " + message + ": " + root(t));
+        System.err.println("[Zazu's Server Seeker] " + message + ": " + root(t));
     }
 
     private static Throwable root(Throwable t) {

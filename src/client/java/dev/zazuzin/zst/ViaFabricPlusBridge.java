@@ -50,7 +50,7 @@ final class ViaFabricPlusBridge {
             Class<?> protocolVersion = Class.forName("com.viaversion.viaversion.api.protocol.version.ProtocolVersion");
             Object match = protocolVersion.getMethod("getClosest", String.class).invoke(null, newest);
             if (match == null) {
-                System.err.println("[Zazu's Server Tool] ViaFabricPlus has no protocol match for " + version);
+                System.err.println("[Zazu's Server Seeker] ViaFabricPlus has no protocol match for " + version);
                 return false;
             }
             return applyTarget(match);
@@ -80,7 +80,7 @@ final class ViaFabricPlusBridge {
             }
         }
         if (target == null) {
-            System.err.println("[Zazu's Server Tool] ViaFabricPlus setTargetVersion API was not found.");
+            System.err.println("[Zazu's Server Seeker] ViaFabricPlus setTargetVersion API was not found.");
             return false;
         }
         target.invoke(impl, version);
@@ -120,6 +120,6 @@ final class ViaFabricPlusBridge {
     }
 
     private static void logError(Throwable t) {
-        System.err.println("[Zazu's Server Tool] ViaFabricPlus integration error: " + Reflection.unwrap(t));
+        System.err.println("[Zazu's Server Seeker] ViaFabricPlus integration error: " + Reflection.unwrap(t));
     }
 }

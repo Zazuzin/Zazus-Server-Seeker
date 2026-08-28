@@ -2,7 +2,7 @@
 
 ## Supported version
 
-Security fixes are provided for the newest published release of Zazu's Server Tool.
+Security fixes are provided for the newest published release of Zazu's Server Seeker.
 
 ## Reporting a vulnerability
 

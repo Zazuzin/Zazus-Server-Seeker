@@ -26,7 +26,7 @@ final class AutoJoinDiagnostics {
             });
             RuntimeAccess.registerEvent(event, listener);
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] Auto Join diagnostics unavailable: " + root(t));
+            System.err.println("[Zazu's Server Seeker] Auto Join diagnostics unavailable: " + root(t));
         }
     }
 
@@ -139,7 +139,7 @@ final class AutoJoinDiagnostics {
     private static void logOnce(String message, Throwable t) {
         if (logged) return;
         logged = true;
-        System.err.println("[Zazu's Server Tool] " + message + ": " + root(t));
+        System.err.println("[Zazu's Server Seeker] " + message + ": " + root(t));
     }
 
     private static Throwable root(Throwable t) {

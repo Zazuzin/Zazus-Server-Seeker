@@ -7,7 +7,7 @@ import java.util.Collection;
 
 /** Standalone Meteor-style title credit; no Meteor dependency. */
 public final class TitleCreditEntrypoint implements ClientModInitializer {
-    private static final String NAME = "Zazu's Server Tool";
+    private static final String NAME = "Zazu's Server Seeker";
     private static final String BY = " by ";
     private static final String AUTHOR = "Zazuzin";
     private static final int NAME_COLOR = 0xFFFF5555;
@@ -26,9 +26,9 @@ public final class TitleCreditEntrypoint implements ClientModInitializer {
                         if (args != null && args.length >= 2 && isTitleScreen(args[1])) registerAfterExtract(args[1]);
                         return null;
                     });
-            System.out.println("[Zazu's Server Tool] Meteor-style title credit registered.");
+            System.out.println("[Zazu's Server Seeker] Meteor-style title credit registered.");
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] Could not register title credit:");
+            System.err.println("[Zazu's Server Seeker] Could not register title credit:");
             Reflection.unwrap(t).printStackTrace();
         }
     }

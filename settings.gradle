@@ -6,4 +6,4 @@ pluginManagement {
     }
 }
 
-rootProject.name = 'Zazus-Server-Tool'
+rootProject.name = 'Zazus-Server-Seeker'

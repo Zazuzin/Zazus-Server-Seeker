@@ -3,7 +3,7 @@ package dev.zazuzin.zst;
 import java.lang.reflect.*;
 import java.util.*;
 
-/** Shared reflective runtime helpers for Zazu's Server Tool. */
+/** Shared reflective runtime helpers for Zazu's Server Seeker. */
 final class RuntimeAccess {
     private RuntimeAccess() {}
 
@@ -240,7 +240,7 @@ final class RuntimeAccess {
 
     static Object objectMethod(Object proxy, Method method, Object[] args) {
         return switch (method.getName()) {
-            case "toString" -> "ZazusServerToolCallback";
+            case "toString" -> "ZazusServerSeekerCallback";
             case "hashCode" -> System.identityHashCode(proxy);
             case "equals" -> proxy == (args == null || args.length == 0 ? null : args[0]);
             default -> null;

@@ -35,14 +35,14 @@ public final class WhitelistAutoDeleteEntrypoint implements ClientModInitializer
                                 if (!tryHandleDisconnect(client, screen)) registerDelayedDisconnectWatcher(client, screen);
                             }
                         } catch (Throwable t) {
-                            System.err.println("[Zazu's Server Tool] Whitelist watcher error: " + Reflection.unwrap(t));
+                            System.err.println("[Zazu's Server Seeker] Whitelist watcher error: " + Reflection.unwrap(t));
                         }
                         return null;
                     });
             registerGlobalTickFallback();
-            System.out.println("[Zazu's Server Tool] 0.3.41 whitelist auto-delete enabled (screen + client-tick detection).");
+            System.out.println("[Zazu's Server Seeker] 0.3.41 whitelist auto-delete enabled (screen + client-tick detection).");
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] Whitelist watcher registration failed: " + Reflection.unwrap(t));
+            System.err.println("[Zazu's Server Seeker] Whitelist watcher registration failed: " + Reflection.unwrap(t));
         }
     }
 
@@ -63,7 +63,7 @@ public final class WhitelistAutoDeleteEntrypoint implements ClientModInitializer
                             tryHandleDisconnect(client, screen);
                         }
                     } catch (Throwable t) {
-                        System.err.println("[Zazu's Server Tool] Whitelist client-tick fallback failed: " + Reflection.unwrap(t));
+                        System.err.println("[Zazu's Server Seeker] Whitelist client-tick fallback failed: " + Reflection.unwrap(t));
                     }
                     return null;
                 });
@@ -147,13 +147,13 @@ public final class WhitelistAutoDeleteEntrypoint implements ClientModInitializer
                     }
                 } catch (Throwable t) {
                     watch.finished = true;
-                    System.err.println("[Zazu's Server Tool] Delayed whitelist detection failed: " + Reflection.unwrap(t));
+                    System.err.println("[Zazu's Server Seeker] Delayed whitelist detection failed: " + Reflection.unwrap(t));
                 }
                 return null;
             });
             RuntimeAccess.registerEvent(event, listener);
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] Could not attach delayed whitelist watcher: " + Reflection.unwrap(t));
+            System.err.println("[Zazu's Server Seeker] Could not attach delayed whitelist watcher: " + Reflection.unwrap(t));
         }
     }
 
@@ -164,7 +164,7 @@ public final class WhitelistAutoDeleteEntrypoint implements ClientModInitializer
         String endpoint = ToolState.normalize(endpointHint);
         if (endpoint.isBlank()) endpoint = resolveAttemptEndpoint(screen);
         if (endpoint.isBlank()) {
-            System.err.println("[Zazu's Server Tool] Whitelist rejection detected but attempted endpoint was unknown. Reason: " + reason);
+            System.err.println("[Zazu's Server Seeker] Whitelist rejection detected but attempted endpoint was unknown. Reason: " + reason);
             return false;
         }
 
@@ -177,7 +177,7 @@ public final class WhitelistAutoDeleteEntrypoint implements ClientModInitializer
         lastHandledAt = now;
 
         if (ServerListAccess.isFavouriteEndpoint(client, findMultiplayerScreen(screen), endpoint)) {
-            System.out.println("[Zazu's Server Tool] Kept favourite after whitelist rejection: " + endpoint);
+            System.out.println("[Zazu's Server Seeker] Kept favourite after whitelist rejection: " + endpoint);
             AutoJoinEntrypoint.markReturningAfterFailure();
             returnToMultiplayer(client, screen);
             clearAttempt();
@@ -200,11 +200,11 @@ public final class WhitelistAutoDeleteEntrypoint implements ClientModInitializer
             ServerCategoryStore.remove(endpoint);
             ToolState.recordDeleted(endpoint);
             removeFromOpenMultiplayerBackings(screen, endpoint);
-            System.out.println("[Zazu's Server Tool] Removed whitelist-rejected server: " + endpoint
+            System.out.println("[Zazu's Server Seeker] Removed whitelist-rejected server: " + endpoint
                     + " | live=" + removedLive + " persisted=" + removedPersisted
                     + " | reason: " + reason);
         } else {
-            System.err.println("[Zazu's Server Tool] Whitelist rejection detected but saved server could not be removed: " + endpoint + " | reason: " + reason);
+            System.err.println("[Zazu's Server Seeker] Whitelist rejection detected but saved server could not be removed: " + endpoint + " | reason: " + reason);
         }
 
         returnToMultiplayer(client, screen);
@@ -229,12 +229,12 @@ public final class WhitelistAutoDeleteEntrypoint implements ClientModInitializer
     private static void returnToMultiplayer(Object client, Object disconnectScreen) {
         Object multiplayer = findMultiplayerScreen(disconnectScreen);
         if (multiplayer == null) {
-            System.err.println("[Zazu's Server Tool] Whitelist deletion finished but Multiplayer parent could not be found.");
+            System.err.println("[Zazu's Server Seeker] Whitelist deletion finished but Multiplayer parent could not be found.");
             return;
         }
         Reflection.execute(client, () -> {
             try { ScreenCompat.setScreen(client, multiplayer); }
-            catch (Throwable t) { System.err.println("[Zazu's Server Tool] Could not return to Multiplayer after whitelist deletion: " + Reflection.unwrap(t)); }
+            catch (Throwable t) { System.err.println("[Zazu's Server Seeker] Could not return to Multiplayer after whitelist deletion: " + Reflection.unwrap(t)); }
         });
     }
 
