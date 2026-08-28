@@ -1,0 +1,36 @@
+name: Build and verify
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Build verified JAR
+        run: ./build.sh
+
+      - name: Run regression suite
+        run: ./verify.sh
+
+      - name: Upload verified JAR
+        uses: actions/upload-artifact@v7
+        with:
+          name: zazus-server-tool
+          path: build/libs/*.jar
+          if-no-files-found: error
+          retention-days: 14

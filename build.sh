@@ -2,8 +2,13 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-VERSION="0.3.34"
-MC_VERSION="26.2"
+property() { sed -n "s/^$1=//p" "$ROOT/gradle.properties" | tail -n 1; }
+VERSION="$(property mod_version)"
+MC_VERSION="$(property minecraft_version)"
+[[ -n "$VERSION" && -n "$MC_VERSION" ]] || {
+  echo "mod_version and minecraft_version must be set in gradle.properties." >&2
+  exit 1
+}
 OUT="$ROOT/build/libs/Zazus-Server-Tool-${VERSION}+mc${MC_VERSION}.jar"
 TMP="$ROOT/build/local-javac"
 

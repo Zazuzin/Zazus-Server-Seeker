@@ -1,6 +1,5 @@
 package dev.zazuzin.zst;
 
-import java.io.*;
 import java.lang.reflect.*;
 import java.net.*;
 import java.net.http.*;
@@ -11,17 +10,26 @@ import java.util.concurrent.*;
 import java.util.function.*;
 
 /**
- * Core finder overlay and BreakBlocks client.
+ * Core finder overlay and multi-provider server discovery client.
  *
  * Minecraft GUI/server-list interaction is deliberately reflection-based to
  * tolerate mapping/layout changes across the supported 26.2 client stack.
  */
 public final class ServerFinderClient {
-    private static final String API_URL = "https://api.breakblocks.com/api/v0.1/servers/find";
+    private static final String USER_AGENT = "ZazusServerTool/0.3.63";
+    private static final String BREAKBLOCKS_API_URL = "https://api.breakblocks.com/api/v0.1/servers/find";
+    private static final String CORNBREAD_API_URL = "https://api.cornbread2100.com/v1/servers/random";
+    private static final String MINESCAN_API_URL = "https://data.minescan.xyz/servers/random";
     private static final int DISPLAY_RESULTS = 8;
     private static final int API_LIMIT = 20;
     private static final int MAX_PUBLIC_PAGES = 10;
     private static final int MAX_AUTHENTICATED_PAGES = 50;
+    private static final int MAX_RANDOM_PROVIDER_REQUESTS = 25;
+    private static final int ALL_SOURCE_SLICE = 3;
+    private static final long AUTO_ADD_BETWEEN_BATCHES_MS = 2_000L;
+    private static final long AUTO_ADD_AFTER_EXHAUSTED_MS = 60_000L;
+    private static final long AUTO_ADD_AFTER_FAILURE_MS = 15_000L;
+    private static final long SECOND_STATUS_CONFIRM_DELAY_MS = 1_000L;
 
     private static final String[] VERSION_OPTIONS = {
             "*", "26.2", "26.1", "1.21*", "1.20*", "1.19*", "1.18*", "1.16*", "1.12*", "1.8*"
@@ -31,7 +39,18 @@ public final class ServerFinderClient {
     private static final String[] SERVER_TYPE_LABELS = {"Any", "Premium", "Cracked"};
     private static final String[] SORT_LABELS = {"Recent", "Players", "Version", "Address", "Port"};
     private static final String[] SORT_API_VALUES = {"", "users", "version", "address", "port"};
+    private static final String[] SOURCE_LABELS = {"Auto", "All Sources", "BreakBlocks", "Cornbread", "MineScan"};
+    private static final int[] BREAKBLOCKS_AGE_OPTIONS = {1, 7, 14, 21, 30};
     private static final int[] AUTO_ADD_LIMITS = {10, 25, 50, 0};
+
+    private enum Provider {
+        BREAKBLOCKS("BreakBlocks"),
+        CORNBREAD("Cornbread"),
+        MINESCAN("MineScan");
+
+        final String label;
+        Provider(String label) { this.label = label; }
+    }
 
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(8))
@@ -58,6 +77,7 @@ public final class ServerFinderClient {
         state.maxIndex = clampIndex(ToolState.maxIndex, MAX_PLAYER_OPTIONS.length, 7);
         state.sortIndex = clampIndex(ToolState.sortIndex, SORT_LABELS.length, 0);
         state.serverTypeIndex = clampIndex(ToolState.serverTypeIndex, SERVER_TYPE_LABELS.length, 0);
+        state.sourceIndex = clampIndex(ToolState.finderSourceIndex, SOURCE_LABELS.length, 0);
         state.autoAdd = ToolState.autoAddDefault;
         state.open = true;
         STATES.put(screen, state);
@@ -70,6 +90,10 @@ public final class ServerFinderClient {
             Reflection.setBoolean(widget, "active", false);
         }
         buildOverlay(state);
+        if (state.autoAdd) {
+            state.autoAddedThisSession = 0;
+            scheduleNextAutoAddBatch(state, 0L, false, "Auto-add starting…");
+        }
     }
 
     private static void buildOverlay(OverlayState s) throws Exception {
@@ -134,6 +158,7 @@ public final class ServerFinderClient {
         if (!s.open) return;
         s.open = false;
         s.autoAdd = false;
+        s.autoAddScheduleToken++;
         try {
             List<Object> widgets = Reflection.widgets(s.screen);
             widgets.removeAll(s.widgets);
@@ -150,6 +175,7 @@ public final class ServerFinderClient {
     }
 
     private static void refreshMultiplayerAfterFinderClose(OverlayState s) throws Exception {
+        ServerTabsEntrypoint.preserveCurrentViewAfterRefresh(s.screen);
         Method refresh = Reflection.findMethod(s.screen.getClass(), "refreshServerList", 0);
         if (refresh != null) refresh.invoke(s.screen);
         MultiplayerManagementEntrypoint.rebuildRowButtons(s.screen);
@@ -187,17 +213,50 @@ public final class ServerFinderClient {
     }
     private static void toggleAuto(OverlayState s) {
         s.autoAdd = !s.autoAdd;
+        s.autoAddScheduleToken++;
         Reflection.setButtonText(s.autoButton, autoLabel(s));
-        setStatus(s, s.autoAdd ? "Auto-add ON. Start a search to run continuously." : "Auto-add OFF.");
+        if (s.autoAdd) {
+            s.autoAddedThisSession = 0;
+            setStatus(s, s.loading ? "Auto-add ON — current search will continue automatically." : "Auto-add ON — starting search…");
+            if (!s.loading) findNewServers(s);
+        } else {
+            setStatus(s, "Auto-add OFF.");
+        }
     }
 
     static void resetSearchState(OverlayState s, String status) {
-        if (s.loading) { setStatus(s, "Wait for the current BreakBlocks request to finish."); return; }
-        s.nextApiPage = 0;
+        if (s.loading) { setStatus(s, "Wait for the current provider request to finish."); return; }
         s.seenEndpoints.clear();
         s.currentBatch.clear();
         s.results = List.of();
         s.exhausted = false;
+        s.providerRequestCounts.clear();
+        s.providerDuplicateOnlyStreaks.clear();
+        s.disabledProviders.clear();
+        s.activeProvider = null;
+        s.allSourceCursor = 0;
+        s.breakBlocksCurrentPage = 0;
+        s.breakBlocksApiResults = 0;
+        s.breakBlocksProbeAttempts = 0;
+        s.breakBlocksStatusReplies = 0;
+        s.breakBlocksLiveVerified = 0;
+        s.breakBlocksDnsFailures = 0;
+        s.breakBlocksUnreachableFailures = 0;
+        s.breakBlocksTimeoutFailures = 0;
+        s.breakBlocksProbeErrors = 0;
+        s.breakBlocksIncompatibleReplies = 0;
+        s.breakBlocksLastProbeFailure = "";
+        s.statusProbeAttempts = 0;
+        s.statusFirstPasses = 0;
+        s.statusSecondPasses = 0;
+        s.liveVerified = 0;
+        s.statusRejected = 0;
+        s.statusDnsFailures = 0;
+        s.statusUnreachableFailures = 0;
+        s.statusTimeoutFailures = 0;
+        s.statusProbeErrors = 0;
+        s.lastProbeFailure = "";
+        s.searchGeneration++;
         refreshRows(s);
         setStatus(s, status);
     }
@@ -206,7 +265,7 @@ public final class ServerFinderClient {
         ToolState.reloadBreakBlocksApiKey();
         if (!ToolState.hasBreakBlocksApiKey()) s.apiKeyDisabledForSession = false;
         if (!s.open || s.loading) {
-            if (s.loading) setStatus(s, "Wait for the current BreakBlocks request to finish.");
+            if (s.loading) setStatus(s, "Wait for the current provider request to finish.");
             return;
         }
         if (MIN_PLAYER_OPTIONS[s.minIndex] > MAX_PLAYER_OPTIONS[s.maxIndex]) {
@@ -214,158 +273,443 @@ public final class ServerFinderClient {
             return;
         }
         if (s.exhausted) {
-            if (ToolState.hasBreakBlocksApiKey() && !s.apiKeyDisabledForSession) {
-                setStatus(s, "No more not-previously-added results in the authenticated result window.");
-            } else if (s.serverTypeIndex == 2) {
-                setStatus(s, "No more cracked results in the available 2-page public window.");
-            } else {
-                setStatus(s, "No more not-previously-added results in this public result window.");
-            }
+            setStatus(s, "No more not-previously-added results are available from " + sourceLabel(s) + ".");
             return;
         }
+        // Any explicit or scheduled search supersedes an older delayed Auto Add callback.
+        s.autoAddScheduleToken++;
+        s.searchGeneration++;
         s.loading = true;
         s.currentBatch.clear();
-        setStatus(s, "Finding servers not added before…");
+        setStatus(s, "Finding servers via " + sourceLabel(s) + "…");
         fetchUntilBatchFull(s);
     }
 
     private static void fetchUntilBatchFull(OverlayState s) {
         if (!s.open) { s.loading = false; return; }
-        if (s.currentBatch.size() >= DISPLAY_RESULTS || s.nextApiPage >= maxApiPages(s)) {
-            if (s.nextApiPage >= maxApiPages(s)) s.exhausted = true;
+        if (s.currentBatch.size() >= DISPLAY_RESULTS) {
             finishBatch(s);
             return;
         }
 
-        int page = s.nextApiPage++;
-        StringBuilder url = new StringBuilder(API_URL)
+        Provider provider = chooseProviderForNextRequest(s);
+        if (provider == null) {
+            s.exhausted = true;
+            finishBatch(s);
+            return;
+        }
+        s.activeProvider = provider;
+        int requestNumber = s.providerRequestCounts.getOrDefault(provider, 0);
+        s.providerRequestCounts.put(provider, requestNumber + 1);
+
+        switch (provider) {
+            case BREAKBLOCKS -> fetchBreakBlocks(s, requestNumber);
+            case CORNBREAD -> fetchCornbread(s);
+            case MINESCAN -> fetchMineScan(s);
+        }
+    }
+
+    private static Provider chooseProviderForNextRequest(OverlayState s) {
+        int mode = s.sourceIndex;
+        if (mode == 2) return providerAvailableForRequest(s, Provider.BREAKBLOCKS) ? Provider.BREAKBLOCKS : null;
+        if (mode == 3) return providerAvailableForRequest(s, Provider.CORNBREAD) ? Provider.CORNBREAD : null;
+        if (mode == 4) return providerAvailableForRequest(s, Provider.MINESCAN) ? Provider.MINESCAN : null;
+
+        Provider[] order = {Provider.BREAKBLOCKS, Provider.CORNBREAD, Provider.MINESCAN};
+        if (mode == 1) {
+            for (int i = 0; i < order.length; i++) {
+                int index = (s.allSourceCursor + i) % order.length;
+                Provider p = order[index];
+                if (providerAvailableForRequest(s, p)) {
+                    s.allSourceCursor = (index + 1) % order.length;
+                    return p;
+                }
+            }
+            return null;
+        }
+
+        // Auto mode prefers BreakBlocks, then fails over to Cornbread and MineScan.
+        if (s.activeProvider != null && providerAvailableForRequest(s, s.activeProvider)) return s.activeProvider;
+        for (Provider p : order) if (providerAvailableForRequest(s, p)) return p;
+        return null;
+    }
+
+    private static boolean providerAvailableForRequest(OverlayState s, Provider provider) {
+        if (s.disabledProviders.contains(provider)) return false;
+        int used = s.providerRequestCounts.getOrDefault(provider, 0);
+        int max = provider == Provider.BREAKBLOCKS ? maxBreakBlocksPages(s) : MAX_RANDOM_PROVIDER_REQUESTS;
+        if (used >= max) {
+            s.disabledProviders.add(provider);
+            return false;
+        }
+        return true;
+    }
+
+    private static void fetchBreakBlocks(OverlayState s, int requestNumber) {
+        // BreakBlocks is 1-based: page=1 is the first page. requestNumber is our
+        // zero-based count of requests already made for this provider.
+        int page = requestNumber + 1;
+        URI uri = buildBreakBlocksPageUri(s, page);
+        s.breakBlocksCurrentPage = page;
+        setStatus(s, breakBlocksProgressLabel(s, "requesting"));
+        sendBreakBlocksPage(s, page, uri, true);
+    }
+
+    static URI buildBreakBlocksPageUri(OverlayState s, int page) {
+        int age = normalizedBreakBlocksAgeDays(ToolState.breakBlocksMaxAgeDays);
+        StringBuilder url = new StringBuilder(BREAKBLOCKS_API_URL)
                 .append("?version=").append(enc(VERSION_OPTIONS[s.versionIndex]))
                 .append("&minUsers=").append(MIN_PLAYER_OPTIONS[s.minIndex])
                 .append("&maxUsers=").append(MAX_PLAYER_OPTIONS[s.maxIndex])
-                .append("&page=").append(page)
+                .append("&page=").append(Math.max(1, page))
                 .append("&limit=").append(API_LIMIT)
-                .append("&maxAge=1");
+                .append("&maxAge=").append(age);
         if (s.serverTypeIndex == 2) url.append("&offlineOnly=on");
         if (!SORT_API_VALUES[s.sortIndex].isBlank()) url.append("&sort=").append(enc(SORT_API_VALUES[s.sortIndex]));
-
-        sendApiPage(s, page, URI.create(url.toString()), true);
+        return URI.create(url.toString());
     }
 
-    private static void sendApiPage(OverlayState s, int page, URI uri, boolean allowAuthentication) {
+    private static void fetchCornbread(OverlayState s) {
+        StringBuilder url = new StringBuilder(CORNBREAD_API_URL)
+                .append("?limit=").append(API_LIMIT)
+                .append("&minPlayers=").append(MIN_PLAYER_OPTIONS[s.minIndex]);
+        String version = providerVersionValue(s);
+        if (!version.isBlank()) url.append("&version=").append(enc(version));
+        sendSimpleProviderRequest(s, Provider.CORNBREAD, URI.create(url.toString()));
+    }
+
+    private static void fetchMineScan(OverlayState s) {
+        StringBuilder url = new StringBuilder(MINESCAN_API_URL)
+                .append("?count=").append(API_LIMIT)
+                .append("&minPlayers=").append(MIN_PLAYER_OPTIONS[s.minIndex]);
+        String version = providerVersionValue(s);
+        if (!version.isBlank()) url.append("&version=").append(enc(version));
+        sendSimpleProviderRequest(s, Provider.MINESCAN, URI.create(url.toString()));
+    }
+
+    private static String providerVersionValue(OverlayState s) {
+        String value = VERSION_OPTIONS[s.versionIndex];
+        if (value.equals("*")) return "";
+        return value.endsWith("*") ? value.substring(0, value.length() - 1) : value;
+    }
+
+    private static void sendBreakBlocksPage(OverlayState s, int page, URI uri, boolean allowAuthentication) {
         String apiKey = allowAuthentication && !s.apiKeyDisabledForSession ? ToolState.breakBlocksApiKey() : "";
         boolean authenticated = !apiKey.isBlank();
         HttpRequest request = buildBreakBlocksRequest(uri, apiKey);
         HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                 .whenComplete((response, error) -> Reflection.execute(s.client,
-                        () -> handleApiPage(s, page, uri, authenticated, response, error)));
+                        () -> handleBreakBlocksPage(s, page, uri, authenticated, response, error)));
     }
 
     static HttpRequest buildBreakBlocksRequest(URI uri, String apiKey) {
-        HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
-                .timeout(Duration.ofSeconds(12))
-                .header("Accept", "application/json")
-                .header("User-Agent", "ZazusServerTool/0.3.34")
-                .GET();
-        if (apiKey != null && !apiKey.isBlank()) {
-            builder.header("Authorization", "Bearer " + apiKey.trim());
-        }
-        return builder.build();
+        HttpRequest.Builder builder = baseRequest(uri);
+        if (apiKey != null && !apiKey.isBlank()) builder.header("Authorization", "Bearer " + apiKey.trim());
+        return builder.GET().build();
     }
 
-    private static void handleApiPage(OverlayState s, int page, URI uri, boolean authenticated,
-                                      HttpResponse<String> response, Throwable error) {
+    static HttpRequest buildProviderRequest(URI uri) {
+        return baseRequest(uri).GET().build();
+    }
+
+    private static HttpRequest.Builder baseRequest(URI uri) {
+        return HttpRequest.newBuilder(uri)
+                .timeout(Duration.ofSeconds(12))
+                .header("Accept", "application/json")
+                .header("User-Agent", USER_AGENT);
+    }
+
+    private static void sendSimpleProviderRequest(OverlayState s, Provider provider, URI uri) {
+        HttpRequest request = buildProviderRequest(uri);
+        HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .whenComplete((response, error) -> Reflection.execute(s.client,
+                        () -> handleSimpleProviderResponse(s, provider, response, error)));
+    }
+
+    private static void handleBreakBlocksPage(OverlayState s, int page, URI uri, boolean authenticated,
+                                               HttpResponse<String> response, Throwable error) {
         if (!s.open) { s.loading = false; return; }
-        if (error != null) { failSearch(s, rootMessage(error)); return; }
-        if (response == null) { failSearch(s, "No response from BreakBlocks."); return; }
+        if (error != null) { providerFailure(s, Provider.BREAKBLOCKS, rootMessage(error)); return; }
+        if (response == null) { providerFailure(s, Provider.BREAKBLOCKS, "No response"); return; }
 
         int status = response.statusCode();
         if (authenticated && (status == 401 || status == 403)) {
-            // A bad/expired/restricted key must never make the Finder unusable.
-            // Retry this exact page anonymously and keep the key out of all logs/messages.
             s.apiKeyDisabledForSession = true;
-            setStatus(s, "BreakBlocks API key was rejected; continuing anonymously.");
-            sendApiPage(s, page, uri, false);
+            setStatus(s, "BreakBlocks API key rejected; retrying anonymously…");
+            sendBreakBlocksPage(s, page, uri, false);
             return;
         }
         if (status == 429) {
             String retry = response.headers().firstValue("Retry-After").orElse("").trim();
-            failSearch(s, retry.isBlank()
-                    ? "BreakBlocks rate limit reached. Try again shortly."
-                    : "BreakBlocks rate limit reached. Retry in " + retry + "s.");
+            providerFailure(s, Provider.BREAKBLOCKS, retry.isBlank() ? "rate limit reached" : "rate limit; retry in " + retry + "s");
             return;
         }
-        if (status / 100 != 2) { failSearch(s, "BreakBlocks returned HTTP " + status); return; }
+        if (status / 100 != 2) { providerFailure(s, Provider.BREAKBLOCKS, "HTTP " + status); return; }
         if (authenticated) s.apiKeyAcceptedThisSession = true;
         try {
             SearchResult parsed = parseSearchResult(response.body());
-            if (parsed.servers().isEmpty()) {
-                s.exhausted = true;
-                finishBatch(s);
-                return;
-            }
-            List<ServerRecord> candidates = new ArrayList<>();
-            int newApiEndpoints = 0;
-            for (ServerRecord r : parsed.servers()) {
-                String endpoint = normalizeEndpoint(r.endpoint());
-                if (!s.seenEndpoints.add(endpoint)) continue;
-                newApiEndpoints++;
-                if (s.serverTypeIndex == 1 && r.offlineMode()) continue; // premium only
-                if (ToolState.isBlocked(endpoint)) continue;
-                if (ToolState.skipAddedHistory && ToolState.wasAdded(endpoint)) continue;
-                try { if (ServerListBridge.contains(s.client, endpoint)) continue; } catch (Throwable ignored) {}
-                candidates.add(r);
-            }
-            // Some account tiers cap pagination by repeating/clamping the last page.
-            // Stop rather than burning authenticated quota on duplicate-only pages.
-            if (newApiEndpoints == 0) {
-                s.exhausted = true;
-                finishBatch(s);
-                return;
-            }
-            if (candidates.isEmpty()) { fetchUntilBatchFull(s); return; }
-            verifyLiveCandidates(s, candidates, false);
+            s.breakBlocksCurrentPage = page;
+            s.breakBlocksApiResults += parsed.servers().size();
+            if (parsed.servers().isEmpty()) { providerExhausted(s, Provider.BREAKBLOCKS); return; }
+            setStatus(s, breakBlocksProgressLabel(s, "received"));
+            processProviderRecords(s, Provider.BREAKBLOCKS, parsed.servers(), true);
         } catch (Throwable t) {
-            failSearch(s, "Could not read BreakBlocks response: " + rootMessage(t));
+            providerFailure(s, Provider.BREAKBLOCKS, "could not read response: " + rootMessage(t));
         }
     }
 
-    private static void verifyLiveCandidates(OverlayState s, List<ServerRecord> candidates, boolean addImmediately) {
-        List<CompletableFuture<ServerRecord>> futures = new ArrayList<>();
-        for (ServerRecord record : candidates) {
-            futures.add(CompletableFuture.supplyAsync(() -> probeMinecraftServer(record)));
+    private static void handleSimpleProviderResponse(OverlayState s, Provider provider,
+                                                     HttpResponse<String> response, Throwable error) {
+        if (!s.open) { s.loading = false; return; }
+        if (error != null) { providerFailure(s, provider, rootMessage(error)); return; }
+        if (response == null) { providerFailure(s, provider, "No response"); return; }
+        int status = response.statusCode();
+        if (status == 429) {
+            String retry = response.headers().firstValue("Retry-After").orElse("").trim();
+            providerFailure(s, provider, retry.isBlank() ? "rate limit reached" : "rate limit; retry in " + retry + "s");
+            return;
         }
-        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).whenComplete((v, error) -> {
-            List<ServerRecord> live = new ArrayList<>();
-            for (CompletableFuture<ServerRecord> f : futures) {
-                try { ServerRecord r = f.getNow(null); if (r != null) live.add(r); } catch (Throwable ignored) {}
+        if (status / 100 != 2) { providerFailure(s, provider, "HTTP " + status); return; }
+        try {
+            List<ServerRecord> records = provider == Provider.CORNBREAD
+                    ? parseCornbreadResult(response.body())
+                    : parseMineScanResult(response.body());
+            if (records.isEmpty()) {
+                int streak = s.providerDuplicateOnlyStreaks.getOrDefault(provider, 0) + 1;
+                s.providerDuplicateOnlyStreaks.put(provider, streak);
+                if (streak >= 2) providerExhausted(s, provider);
+                else fetchUntilBatchFull(s);
+                return;
             }
-            Reflection.execute(s.client, () -> {
-                if (!s.open) { s.loading = false; return; }
-                for (ServerRecord r : live) {
-                    if (s.currentBatch.size() >= DISPLAY_RESULTS) break;
-                    if (!ToolState.isBlocked(r.endpoint())) s.currentBatch.add(r);
+            processProviderRecords(s, provider, records, false);
+        } catch (Throwable t) {
+            providerFailure(s, provider, "could not read response: " + rootMessage(t));
+        }
+    }
+
+    private static void processProviderRecords(OverlayState s, Provider provider, List<ServerRecord> records, boolean paged) {
+        List<ServerRecord> candidates = new ArrayList<>();
+        int newApiEndpoints = 0;
+        for (ServerRecord r : records) {
+            String endpoint = normalizeEndpoint(r.endpoint());
+            if (endpoint.isBlank() || !s.seenEndpoints.add(endpoint)) continue;
+            newApiEndpoints++;
+            if (r.whitelisted()) continue;
+            if (s.serverTypeIndex == 1 && r.offlineMode()) continue;
+            if (s.serverTypeIndex == 2 && !r.offlineMode()) continue;
+            if (r.playersOnline() < MIN_PLAYER_OPTIONS[s.minIndex] || r.playersOnline() > MAX_PLAYER_OPTIONS[s.maxIndex]) continue;
+            if (ToolState.isBlocked(endpoint)) continue;
+            if (ToolState.skipAddedHistory && ToolState.wasAdded(endpoint)) continue;
+            try { if (ServerListBridge.contains(s.client, endpoint)) continue; } catch (Throwable ignored) {}
+            candidates.add(r);
+            if (s.sourceIndex == 1 && candidates.size() >= ALL_SOURCE_SLICE) break;
+        }
+
+        if (newApiEndpoints == 0) {
+            int streak = s.providerDuplicateOnlyStreaks.getOrDefault(provider, 0) + 1;
+            s.providerDuplicateOnlyStreaks.put(provider, streak);
+            if (paged || streak >= 3) providerExhausted(s, provider);
+            else fetchUntilBatchFull(s);
+            return;
+        }
+        s.providerDuplicateOnlyStreaks.put(provider, 0);
+        if (candidates.isEmpty()) { fetchUntilBatchFull(s); return; }
+        verifyProviderCandidatesTwice(s, provider, candidates);
+    }
+
+    private static void providerFailure(OverlayState s, Provider provider, String reason) {
+        s.disabledProviders.add(provider);
+        if (canFailOver(s)) {
+            setStatus(s, provider.label + " unavailable (" + shorten(reason, 35) + "); trying another source…");
+            s.activeProvider = null;
+            fetchUntilBatchFull(s);
+        } else {
+            failSearch(s, provider.label + " failed: " + reason);
+        }
+    }
+
+    private static void providerExhausted(OverlayState s, Provider provider) {
+        s.disabledProviders.add(provider);
+        s.activeProvider = null;
+        // Let fetchUntilBatchFull perform the single provider-selection step.
+        // Probing with chooseProviderForNextRequest here would advance the
+        // All Sources round-robin cursor twice and skip a healthy provider.
+        fetchUntilBatchFull(s);
+    }
+
+    private static boolean canFailOver(OverlayState s) {
+        return s.sourceIndex == 0 || s.sourceIndex == 1;
+    }
+
+    /**
+     * Provider data is discovery input only. A candidate is not displayed or
+     * saved until two independent Java status handshakes succeed roughly one
+     * second apart. This prevents stale provider records / briefly-open ports
+     * from becoming Scanned Servers.
+     */
+    private static void verifyProviderCandidatesTwice(OverlayState s, Provider provider,
+                                                       List<ServerRecord> candidates) {
+        if (!s.open) { s.loading = false; return; }
+
+        List<ServerRecord> filtered = new ArrayList<>();
+        for (ServerRecord r : candidates) {
+            if (!versionMatches(s, r) || ToolState.isBlocked(r.endpoint())) continue;
+            filtered.add(r);
+        }
+        if (filtered.isEmpty()) { fetchUntilBatchFull(s); return; }
+
+        List<String> endpoints = filtered.stream().map(ServerRecord::endpoint).toList();
+        s.statusProbeAttempts += endpoints.size();
+        if (provider == Provider.BREAKBLOCKS) s.breakBlocksProbeAttempts += endpoints.size();
+        setStatus(s, "Verifying " + endpoints.size() + " candidate(s) — status check 1/2…");
+
+        final long token = s.searchGeneration;
+        VanillaStatusProbe.probe(s.client, s.screen, endpoints, () ->
+                s.open && s.loading && s.searchGeneration == token
+        ).whenComplete((firstResults, firstError) -> Reflection.execute(s.client, () -> {
+            if (!s.open || !s.loading || s.searchGeneration != token) return;
+
+            Map<String, VanillaStatusProbe.Result> firstByEndpoint = resultMap(firstResults);
+            List<ServerRecord> firstPassed = new ArrayList<>();
+            for (ServerRecord record : filtered) {
+                VanillaStatusProbe.Result result = firstByEndpoint.get(normalizeEndpoint(record.endpoint()));
+                if (result != null && result.replied()) {
+                    s.statusFirstPasses++;
+                    if (provider == Provider.BREAKBLOCKS) s.breakBlocksStatusReplies++;
+                    firstPassed.add(record.withLiveVersion(result.version(), result.protocol()));
+                } else {
+                    recordProbeFailure(s, provider, result);
                 }
-                if (addImmediately || s.autoAdd) {
-                    for (ServerRecord r : live) {
-                        if (!s.open || !s.autoAdd) break;
-                        int limit = ToolState.autoAddLimit;
-                        if (limit > 0 && s.autoAddedThisSession >= limit) {
-                            s.autoAdd = false;
-                            Reflection.setButtonText(s.autoButton, autoLabel(s));
-                            setStatus(s, "Auto-add limit reached (" + limit + ").");
-                            break;
-                        }
-                        try {
-                            if (ServerListBridge.add(s.client, r)) {
-                                s.autoAddedThisSession++;
-                                System.out.println("[Zazu's Server Tool] Added live server " + r.endpoint());
+            }
+
+            if (firstPassed.isEmpty()) {
+                s.statusRejected += filtered.size();
+                setStatus(s, "Rejected " + filtered.size() + " stale/unreachable candidate(s); searching next batch…");
+                fetchUntilBatchFull(s);
+                return;
+            }
+
+            setStatus(s, "Status check 1/2 passed " + firstPassed.size() + "/" + filtered.size()
+                    + "; confirming in 1 second…");
+
+            CompletableFuture.delayedExecutor(SECOND_STATUS_CONFIRM_DELAY_MS, TimeUnit.MILLISECONDS).execute(() ->
+                    Reflection.execute(s.client, () -> {
+                        if (!s.open || !s.loading || s.searchGeneration != token) return;
+
+                        List<String> confirmEndpoints = firstPassed.stream().map(ServerRecord::endpoint).toList();
+                        s.statusProbeAttempts += confirmEndpoints.size();
+                        if (provider == Provider.BREAKBLOCKS) s.breakBlocksProbeAttempts += confirmEndpoints.size();
+                        setStatus(s, "Verifying " + confirmEndpoints.size() + " candidate(s) — status check 2/2…");
+
+                        VanillaStatusProbe.probe(s.client, s.screen, confirmEndpoints, () ->
+                                s.open && s.loading && s.searchGeneration == token
+                        ).whenComplete((secondResults, secondError) -> Reflection.execute(s.client, () -> {
+                            if (!s.open || !s.loading || s.searchGeneration != token) return;
+
+                            Map<String, VanillaStatusProbe.Result> secondByEndpoint = resultMap(secondResults);
+                            List<ServerRecord> verified = new ArrayList<>();
+                            for (ServerRecord record : firstPassed) {
+                                VanillaStatusProbe.Result result = secondByEndpoint.get(normalizeEndpoint(record.endpoint()));
+                                if (result != null && result.replied()) {
+                                    ServerRecord confirmed = record.withLiveVersion(result.version(), result.protocol());
+                                    if (!versionMatches(s, confirmed)) {
+                                        if (provider == Provider.BREAKBLOCKS) s.breakBlocksIncompatibleReplies++;
+                                        continue;
+                                    }
+                                    s.statusSecondPasses++;
+                                    s.liveVerified++;
+                                    if (provider == Provider.BREAKBLOCKS) {
+                                        s.breakBlocksStatusReplies++;
+                                        s.breakBlocksLiveVerified++;
+                                    }
+                                    verified.add(confirmed);
+                                } else {
+                                    recordProbeFailure(s, provider, result);
+                                }
                             }
-                        } catch (Throwable t) { log("Server-list change failed: " + r.endpoint(), t); }
-                    }
+
+                            s.statusRejected += filtered.size() - verified.size();
+                            if (verified.isEmpty()) {
+                                setStatus(s, "Second status check rejected remaining candidates; searching again…");
+                                fetchUntilBatchFull(s);
+                                return;
+                            }
+
+                            acceptVerifiedCandidates(s, provider, verified);
+                        }));
+                    }));
+        }));
+    }
+
+    private static Map<String, VanillaStatusProbe.Result> resultMap(List<VanillaStatusProbe.Result> results) {
+        Map<String, VanillaStatusProbe.Result> out = new HashMap<>();
+        if (results == null) return out;
+        for (VanillaStatusProbe.Result result : results) {
+            if (result == null) continue;
+            out.put(normalizeEndpoint(result.endpoint()), result);
+        }
+        return out;
+    }
+
+    private static void recordProbeFailure(OverlayState s, Provider provider, VanillaStatusProbe.Result result) {
+        if (result == null) {
+            s.statusProbeErrors++;
+            if (provider == Provider.BREAKBLOCKS) s.breakBlocksProbeErrors++;
+            return;
+        }
+        s.lastProbeFailure = result.detail() == null ? "" : result.detail();
+        if (provider == Provider.BREAKBLOCKS) s.breakBlocksLastProbeFailure = s.lastProbeFailure;
+        switch (result.failure()) {
+            case DNS -> {
+                s.statusDnsFailures++;
+                if (provider == Provider.BREAKBLOCKS) s.breakBlocksDnsFailures++;
+            }
+            case UNREACHABLE -> {
+                s.statusUnreachableFailures++;
+                if (provider == Provider.BREAKBLOCKS) s.breakBlocksUnreachableFailures++;
+            }
+            case TIMEOUT -> {
+                s.statusTimeoutFailures++;
+                if (provider == Provider.BREAKBLOCKS) s.breakBlocksTimeoutFailures++;
+            }
+            case ERROR -> {
+                s.statusProbeErrors++;
+                if (provider == Provider.BREAKBLOCKS) s.breakBlocksProbeErrors++;
+            }
+            case NONE -> {}
+        }
+    }
+
+    private static void acceptVerifiedCandidates(OverlayState s, Provider provider, List<ServerRecord> verified) {
+        for (ServerRecord r : verified) {
+            if (s.currentBatch.size() < DISPLAY_RESULTS) s.currentBatch.add(r);
+        }
+
+        if (provider == Provider.BREAKBLOCKS) {
+            setStatus(s, breakBlocksProgressLabel(s, verified.size() + " double-verified live"));
+        } else {
+            setStatus(s, provider.label + ": " + verified.size() + " double-verified live server(s)");
+        }
+
+        if (s.autoAdd) {
+            for (ServerRecord r : verified) {
+                if (!s.open || !s.autoAdd) break;
+                int limit = ToolState.autoAddLimit;
+                if (limit > 0 && s.autoAddedThisSession >= limit) {
+                    s.autoAdd = false;
+                    Reflection.setButtonText(s.autoButton, autoLabel(s));
+                    setStatus(s, "Auto-add limit reached (" + limit + ").");
+                    break;
                 }
-                continueAfterLiveChecks(s);
-            });
-        });
+                try {
+                    if (ServerListBridge.add(s.client, r)) {
+                        s.autoAddedThisSession++;
+                        System.out.println("[Zazu's Server Tool] Added double-verified server " + r.endpoint());
+                    }
+                } catch (Throwable t) { log("Server-list change failed: " + r.endpoint(), t); }
+            }
+        }
+        continueAfterLiveChecks(s);
     }
 
     private static void continueAfterLiveChecks(OverlayState s) {
@@ -373,79 +717,70 @@ public final class ServerFinderClient {
         else fetchUntilBatchFull(s);
     }
 
-    static ServerRecord probeMinecraftServer(ServerRecord record) {
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(record.address(), record.port()), 2800);
-            socket.setSoTimeout(2800);
-            OutputStream out = socket.getOutputStream();
-            InputStream in = socket.getInputStream();
-
-            ByteArrayOutputStream handshake = new ByteArrayOutputStream();
-            writeVarInt(handshake, 0);       // handshake packet id
-            writeVarInt(handshake, 0);       // protocol: status probing does not require exact client protocol
-            writeMinecraftString(handshake, record.address());
-            handshake.write((record.port() >>> 8) & 0xff);
-            handshake.write(record.port() & 0xff);
-            writeVarInt(handshake, 1);       // next state = status
-            byte[] h = handshake.toByteArray();
-            writeVarInt(out, h.length); out.write(h);
-
-            writeVarInt(out, 1); writeVarInt(out, 0); // status request
-            out.flush();
-
-            readVarInt(in);                  // packet length
-            int packetId = readVarInt(in);
-            if (packetId != 0) return null;
-            int jsonLength = readVarInt(in);
-            if (jsonLength <= 0 || jsonLength > 1_000_000) return null;
-            String json = new String(in.readNBytes(jsonLength), StandardCharsets.UTF_8);
-            Object root = new JsonParser(json).parse();
-            if (!(root instanceof Map<?, ?> map)) return record;
-            Object versionObj = map.get("version");
-            if (!(versionObj instanceof Map<?, ?> vm)) return record;
-            String name = asString(vm.get("name"), record.version());
-            int protocol = asInt(vm.get("protocol"), -1);
-            return record.withLiveVersion(name, protocol);
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    private static void writeMinecraftString(OutputStream out, String value) throws IOException {
-        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
-        writeVarInt(out, bytes.length); out.write(bytes);
-    }
-
-    private static void writeVarInt(OutputStream out, int value) throws IOException {
-        int v = value;
-        while ((v & ~0x7f) != 0) { out.write((v & 0x7f) | 0x80); v >>>= 7; }
-        out.write(v);
-    }
-
-    private static int readVarInt(InputStream in) throws IOException {
-        int value = 0, position = 0;
-        while (true) {
-            int current = in.read();
-            if (current == -1) throw new EOFException("Connection closed while reading VarInt");
-            value |= (current & 0x7f) << position;
-            if ((current & 0x80) == 0) return value;
-            position += 7;
-            if (position >= 35) throw new IOException("VarInt is too large");
-        }
-    }
-
     private static void finishBatch(OverlayState s) {
         s.loading = false;
-        s.results = List.copyOf(s.currentBatch);
+        List<ServerRecord> sorted = new ArrayList<>(s.currentBatch);
+        sortRecords(s, sorted);
+        s.results = List.copyOf(sorted);
         refreshRows(s);
-        String suffix = s.exhausted ? " — end of public results" : " — next API page: " + s.nextApiPage;
-        setStatus(s, "New: " + s.results.size() + " shown this search; " + s.autoAddedThisSession + " added" + suffix);
+        String suffix = s.exhausted ? " — provider pool exhausted" : " — source: " + sourceLabel(s);
+        String diagnostics = " — verified " + s.liveVerified + " — rejected " + s.statusRejected;
+        if (s.breakBlocksCurrentPage > 0) {
+            diagnostics += " — BB p" + s.breakBlocksCurrentPage + " " + s.breakBlocksApiResults + " API";
+        }
+        setStatus(s, "New: " + s.results.size() + " shown; " + s.autoAddedThisSession + " added" + suffix + diagnostics);
         refreshStats(s);
+        if (s.autoAdd) {
+            long delay = s.exhausted ? AUTO_ADD_AFTER_EXHAUSTED_MS : AUTO_ADD_BETWEEN_BATCHES_MS;
+            scheduleNextAutoAddBatch(s, delay, s.exhausted, null);
+        }
+    }
+
+    private static void scheduleNextAutoAddBatch(OverlayState s, long delayMs, boolean resetPool, String status) {
+        if (!s.open || !s.autoAdd) return;
+        if (ToolState.autoAddLimit > 0 && s.autoAddedThisSession >= ToolState.autoAddLimit) {
+            s.autoAdd = false;
+            s.autoAddScheduleToken++;
+            Reflection.setButtonText(s.autoButton, autoLabel(s));
+            setStatus(s, "Auto-add limit reached (" + ToolState.autoAddLimit + ").");
+            return;
+        }
+        final long token = ++s.autoAddScheduleToken;
+        if (status != null && !status.isBlank()) setStatus(s, status);
+        CompletableFuture.delayedExecutor(Math.max(0L, delayMs), TimeUnit.MILLISECONDS).execute(() ->
+                Reflection.execute(s.client, () -> {
+                    if (!s.open || !s.autoAdd || s.loading || s.autoAddScheduleToken != token) return;
+                    if (ToolState.autoAddLimit > 0 && s.autoAddedThisSession >= ToolState.autoAddLimit) {
+                        s.autoAdd = false;
+                        s.autoAddScheduleToken++;
+                        Reflection.setButtonText(s.autoButton, autoLabel(s));
+                        setStatus(s, "Auto-add limit reached (" + ToolState.autoAddLimit + ").");
+                        return;
+                    }
+                    if (resetPool || s.exhausted) {
+                        resetSearchState(s, "Auto-add refreshing search pool…");
+                    }
+                    findNewServers(s);
+                }));
+    }
+
+    private static void sortRecords(OverlayState s, List<ServerRecord> records) {
+        Comparator<ServerRecord> comparator = switch (s.sortIndex) {
+            case 1 -> Comparator.comparingInt(ServerRecord::playersOnline).reversed();
+            case 2 -> Comparator.comparing(ServerRecord::version, String.CASE_INSENSITIVE_ORDER);
+            case 3 -> Comparator.comparing(ServerRecord::address, String.CASE_INSENSITIVE_ORDER);
+            case 4 -> Comparator.comparingInt(ServerRecord::port);
+            default -> null;
+        };
+        if (comparator != null) records.sort(comparator);
     }
 
     private static void failSearch(OverlayState s, String message) {
         s.loading = false;
         setStatus(s, message);
+        if (s.autoAdd) {
+            scheduleNextAutoAddBatch(s, AUTO_ADD_AFTER_FAILURE_MS, true, message + " — Auto-add retrying in 15s…");
+        }
     }
 
     private static void refreshRows(OverlayState s) {
@@ -459,7 +794,7 @@ public final class ServerFinderClient {
             Reflection.setBoolean(detail, "visible", has); Reflection.setBoolean(detail, "active", has);
             if (has) {
                 ServerRecord r = s.results.get(i);
-                String text = shorten(r.endpoint() + " | " + r.version() + " | " + r.playersOnline() + "/" + r.playersMax() + " | LIVE", 58);
+                String text = shorten(r.endpoint() + " | " + r.version() + " | " + r.playersOnline() + "/" + r.playersMax() + " | VERIFIED", 58);
                 Reflection.setButtonText(row, text);
                 try { Reflection.setButtonText(add, ServerListBridge.contains(s.client, r.endpoint()) ? "Saved" : "Add"); }
                 catch (Throwable ignored) { Reflection.setButtonText(add, "Add"); }
@@ -471,16 +806,12 @@ public final class ServerFinderClient {
         if (index < 0 || index >= s.results.size()) return;
         ServerRecord record = s.results.get(index);
         if (ToolState.isBlocked(record.endpoint())) { setStatus(s, "That server is blocked. Open Details to unblock it."); return; }
-        setStatus(s, "Checking " + record.endpoint() + "…");
-        CompletableFuture.supplyAsync(() -> probeMinecraftServer(record)).whenComplete((live, error) -> Reflection.execute(s.client, () -> {
-            if (error != null || live == null) { setStatus(s, "Server is no longer responding."); return; }
-            try {
-                if (ServerListBridge.add(s.client, live)) setStatus(s, "Added " + live.endpoint());
-                else if (ServerListBridge.contains(s.client, live.endpoint())) setStatus(s, "Server is already saved.");
+        try {
+                if (ServerListBridge.add(s.client, record)) setStatus(s, "Added " + record.endpoint());
+                else if (ServerListBridge.contains(s.client, record.endpoint())) setStatus(s, "Server is already saved.");
                 else setStatus(s, "Server could not be added.");
                 refreshRows(s); refreshStats(s);
-            } catch (Throwable t) { setStatus(s, "Server-list change failed: " + rootMessage(t)); }
-        }));
+        } catch (Throwable t) { setStatus(s, "Server-list change failed: " + rootMessage(t)); }
     }
 
     private static void toggleResult(OverlayState s, int index) { if (index >= 0 && index < s.results.size()) showDetails(s, index); }
@@ -500,6 +831,7 @@ public final class ServerFinderClient {
             int cx = s.width / 2, x = cx - 220, y = 32;
             addSubLabel(s, "Server Details — " + r.endpoint(), x, y, 440); y += 24;
             addSubLabel(s, "Version: " + r.version() + "   Players: " + r.playersOnline() + "/" + r.playersMax(), x, y, 440); y += 24;
+            addSubLabel(s, "Source: " + r.source(), x, y, 440); y += 24;
             addSubLabel(s, "MOTD: " + shorten(r.motd(), 66), x, y, 440); y += 24;
             String location = joinNonBlank(", ", r.city(), r.region(), r.countryCode(), r.country());
             addSubLabel(s, "Location: " + (location.isBlank() ? "Unknown" : location), x, y, 440); y += 24;
@@ -522,11 +854,8 @@ public final class ServerFinderClient {
     }
 
     private static void addFromDetails(OverlayState s, ServerRecord r) {
-        CompletableFuture.supplyAsync(() -> probeMinecraftServer(r)).whenComplete((live, error) -> Reflection.execute(s.client, () -> {
-            if (live == null) { setStatus(s, "Server is no longer responding."); return; }
-            try { ServerListBridge.add(s.client, live); clearSubView(s); showMain(s); refreshRows(s); refreshStats(s); }
-            catch (Throwable t) { log("Add from details failed", t); }
-        }));
+        try { ServerListBridge.add(s.client, r); clearSubView(s); showMain(s); refreshRows(s); refreshStats(s); }
+        catch (Throwable t) { log("Add from details failed", t); }
     }
     private static void removeFromDetails(OverlayState s, ServerRecord r) {
         try { ServerListBridge.remove(s.client, r.endpoint()); clearSubView(s); showMain(s); refreshRows(s); refreshStats(s); }
@@ -543,9 +872,10 @@ public final class ServerFinderClient {
             addSub(s, Reflection.makeButton("Favourites First: " + onOff(ToolState.favouritesFirst), x, y, 200, 20, b -> { ToolState.favouritesFirst = !ToolState.favouritesFirst; ToolState.save(); showSettings(s); }));
             addSub(s, Reflection.makeButton("Auto-add Default: " + onOff(ToolState.autoAddDefault), x + 210, y, 200, 20, b -> { ToolState.autoAddDefault = !ToolState.autoAddDefault; ToolState.save(); showSettings(s); })); y += 24;
             addSub(s, Reflection.makeButton("Auto-add Limit: " + autoAddLimitLabel(), x, y, 200, 20, b -> { cycleAutoAddLimit(); ToolState.save(); showSettings(s); }));
-            addSubLabel(s, "Defaults follow the Version / Player / Sort controls.", x + 210, y, 200); y += 28;
-            addSub(s, Reflection.makeButton("Clear Added History (" + ToolState.addedHistoryCount() + ")", x, y, 200, 20, b -> { ToolState.clearAddedHistory(); showSettings(s); }));
-            addSub(s, Reflection.makeButton("Reset Added/Deleted Stats", x + 210, y, 200, 20, b -> { ToolState.resetStats(); showSettings(s); })); y += 28;
+            addSub(s, Reflection.makeButton("Finder Source: " + sourceLabel(s), x + 210, y, 200, 20, b -> { cycleSource(s); showSettings(s); })); y += 24;
+            addSub(s, Reflection.makeButton("BreakBlocks Age: " + breakBlocksAgeLabel(), x, y, 200, 20, b -> { cycleBreakBlocksAge(s); showSettings(s); }));
+            addSub(s, Reflection.makeButton("Clear Added History (" + ToolState.addedHistoryCount() + ")", x + 210, y, 200, 20, b -> { ToolState.clearAddedHistory(); showSettings(s); })); y += 28;
+            addSub(s, Reflection.makeButton("Reset Added/Deleted Stats", x, y, 200, 20, b -> { ToolState.resetStats(); showSettings(s); })); y += 28;
             ToolState.reloadBreakBlocksApiKey();
             addSubLabel(s, breakBlocksApiStatusLabel(s), x, y, 410); y += 24;
             addSubLabel(s, "Config key: breakBlocksApiKey=...", x, y, 260);
@@ -600,9 +930,51 @@ public final class ServerFinderClient {
     private static String minLabel(OverlayState s) { return "Min: " + MIN_PLAYER_OPTIONS[s.minIndex]; }
     private static String maxLabel(OverlayState s) { return "Max: " + (MAX_PLAYER_OPTIONS[s.maxIndex] >= 999999 ? "Any" : MAX_PLAYER_OPTIONS[s.maxIndex]); }
     private static String serverTypeLabel(OverlayState s) { return "Type: " + SERVER_TYPE_LABELS[s.serverTypeIndex]; }
-    private static int maxApiPages(OverlayState s) {
+    private static int maxBreakBlocksPages(OverlayState s) {
         if (ToolState.hasBreakBlocksApiKey() && !s.apiKeyDisabledForSession) return MAX_AUTHENTICATED_PAGES;
         return s.serverTypeIndex == 2 ? 2 : MAX_PUBLIC_PAGES;
+    }
+    private static String sourceLabel(OverlayState s) { return SOURCE_LABELS[clampIndex(s.sourceIndex, SOURCE_LABELS.length, 0)]; }
+    private static void cycleSource(OverlayState s) {
+        s.sourceIndex = (s.sourceIndex + 1) % SOURCE_LABELS.length;
+        ToolState.finderSourceIndex = s.sourceIndex;
+        ToolState.save();
+        resetSearchState(s, "Finder source changed to " + sourceLabel(s) + ".");
+    }
+    private static int normalizedBreakBlocksAgeDays(int days) {
+        for (int option : BREAKBLOCKS_AGE_OPTIONS) if (option == days) return days;
+        return 30;
+    }
+    private static String breakBlocksAgeLabel() {
+        int days = normalizedBreakBlocksAgeDays(ToolState.breakBlocksMaxAgeDays);
+        return days + (days == 1 ? " day" : " days");
+    }
+    private static void cycleBreakBlocksAge(OverlayState s) {
+        int current = normalizedBreakBlocksAgeDays(ToolState.breakBlocksMaxAgeDays);
+        int index = 0;
+        for (int i = 0; i < BREAKBLOCKS_AGE_OPTIONS.length; i++) if (BREAKBLOCKS_AGE_OPTIONS[i] == current) index = i;
+        ToolState.breakBlocksMaxAgeDays = BREAKBLOCKS_AGE_OPTIONS[(index + 1) % BREAKBLOCKS_AGE_OPTIONS.length];
+        ToolState.save();
+        resetSearchState(s, "BreakBlocks age changed to " + breakBlocksAgeLabel() + ".");
+    }
+    private static String breakBlocksProgressLabel(OverlayState s, String phase) {
+        StringBuilder label = new StringBuilder("BreakBlocks page ")
+                .append(Math.max(1, s.breakBlocksCurrentPage))
+                .append(" — ").append(s.breakBlocksApiResults).append(" API — strict verification");
+        if (phase != null && !phase.isBlank()) label.append(" (").append(phase).append(")");
+        return label.toString();
+    }
+    private static boolean versionMatches(OverlayState s, ServerRecord record) {
+        String wanted = VERSION_OPTIONS[s.versionIndex];
+        if (wanted.equals("*")) return true;
+        // Prefer Minecraft's own current protocol value. This accepts servers
+        // whose status version-name is customized by a proxy while still
+        // reporting the client's actual 26.2 protocol number.
+        if (wanted.equals("26.2") && record.protocol() == VanillaStatusProbe.currentProtocol()) return true;
+        String actual = record.version() == null ? "" : record.version().toLowerCase(Locale.ROOT);
+        String needle = wanted.toLowerCase(Locale.ROOT);
+        if (needle.endsWith("*")) return actual.contains(needle.substring(0, needle.length() - 1));
+        return actual.contains(needle);
     }
     private static String breakBlocksApiStatusLabel(OverlayState s) {
         if (!ToolState.hasBreakBlocksApiKey()) return "BreakBlocks API: Anonymous (no key configured)";
@@ -637,6 +1009,8 @@ public final class ServerFinderClient {
                 String address = asString(m.get("address"), "");
                 if (address.isBlank()) continue;
                 String motd = asString(m.get("motd_stripped"), asString(m.get("motd"), ""));
+                boolean offline = asBoolean(m.get("offline_mode"), false);
+                boolean whitelist = asBoolean(firstNonNull(m.get("whitelisted"), m.get("whitelist")), false);
                 servers.add(new ServerRecord(
                         address,
                         asInt(m.get("port"), 25565),
@@ -650,15 +1024,80 @@ public final class ServerFinderClient {
                         asString(m.get("region"), ""),
                         asString(m.get("last_ping"), ""),
                         asString(m.get("detected_mod_pack"), ""),
-                        asBoolean(m.get("offline_mode"), false),
-                        stringList(m.get("plugins")),
-                        -1));
+                        offline, whitelist, stringList(m.get("plugins")), -1, "BreakBlocks"));
             }
         }
         int displayed = asInt(data.get("displayed"), servers.size());
         int total = asInt(data.get("total"), displayed);
         int filtered = asInt(data.get("filtered"), total);
         return new SearchResult(servers, displayed, total, filtered);
+    }
+
+    static List<ServerRecord> parseCornbreadResult(String json) {
+        Object parsed = new JsonParser(json).parse();
+        if (!(parsed instanceof Map<?, ?> top)) throw new IllegalArgumentException("Cornbread response was not an object.");
+        Object data = top.get("data");
+        if (!(data instanceof List<?> list)) return List.of();
+        List<ServerRecord> out = new ArrayList<>();
+        for (Object obj : list) {
+            if (!(obj instanceof Map<?, ?> m)) continue;
+            String address = ipv4Value(firstNonNull(m.get("ip"), m.get("address"), m.get("serverip")));
+            if (address.isBlank()) continue;
+            Map<?, ?> versionMap = m.get("version") instanceof Map<?, ?> vm ? vm : Map.of();
+            Map<?, ?> playersMap = m.get("players") instanceof Map<?, ?> pm ? pm : Map.of();
+            String version = !versionMap.isEmpty() ? asString(versionMap.get("name"), "?") : asString(m.get("version"), "?");
+            int protocol = !versionMap.isEmpty() ? asInt(versionMap.get("protocol"), -1) : asInt(m.get("protocol"), -1);
+            int online = !playersMap.isEmpty() ? asInt(playersMap.get("online"), 0) : asInt(firstNonNull(m.get("onlinePlayers"), m.get("players_online")), 0);
+            int max = !playersMap.isEmpty() ? asInt(playersMap.get("max"), 0) : asInt(firstNonNull(m.get("maxPlayers"), m.get("players_max")), 0);
+            boolean cracked = asBoolean(firstNonNull(m.get("cracked"), m.get("offline_mode")), false);
+            boolean whitelist = asBoolean(firstNonNull(m.get("whitelisted"), m.get("whitelist")), false);
+            out.add(new ServerRecord(address, asInt(m.get("port"), 25565), version, online, max,
+                    asString(firstNonNull(m.get("description"), m.get("motd")), ""),
+                    "", "", "", "", asString(m.get("lastSeen"), ""), "", cracked, whitelist, List.of(), protocol, "Cornbread"));
+        }
+        return out;
+    }
+
+    static List<ServerRecord> parseMineScanResult(String json) {
+        Object parsed = new JsonParser(json).parse();
+        if (!(parsed instanceof Map<?, ?> top)) throw new IllegalArgumentException("MineScan response was not an object.");
+        Object data = top.get("servers");
+        if (!(data instanceof List<?> list)) return List.of();
+        List<ServerRecord> out = new ArrayList<>();
+        for (Object obj : list) {
+            if (!(obj instanceof Map<?, ?> m)) continue;
+            String address = asString(firstNonNull(m.get("serverip"), m.get("address"), m.get("ip")), "");
+            if (address.isBlank()) continue;
+            String auth = asString(firstNonNull(m.get("authmode"), m.get("authMode")), "").toLowerCase(Locale.ROOT);
+            boolean offline = auth.equals("offline") || auth.equals("cracked");
+            boolean whitelist = auth.equals("whitelist") || auth.equals("whitelisted");
+            out.add(new ServerRecord(address, asInt(m.get("port"), 25565), asString(m.get("version"), "?"),
+                    asInt(firstNonNull(m.get("onlinePlayers"), m.get("players")), 0),
+                    asInt(firstNonNull(m.get("maxPlayers"), m.get("max")), 0),
+                    asString(m.get("motd"), ""), "", "", "", "", asString(m.get("lastSeen"), ""),
+                    "", offline, whitelist, List.of(), asInt(m.get("protocol"), -1), "MineScan"));
+        }
+        return out;
+    }
+
+    private static Object firstNonNull(Object... values) {
+        for (Object value : values) if (value != null) return value;
+        return null;
+    }
+
+    private static String ipv4Value(Object value) {
+        if (value == null) return "";
+        if (value instanceof Number n) return intToIpv4(n.longValue());
+        String text = String.valueOf(value).trim();
+        if (text.matches("-?\\d+")) {
+            try { return intToIpv4(Long.parseLong(text)); } catch (NumberFormatException ignored) {}
+        }
+        return text;
+    }
+
+    static String intToIpv4(long ip) {
+        long u = ip & 0xFFFF_FFFFL;
+        return ((u >> 24) & 0xFF) + "." + ((u >> 16) & 0xFF) + "." + ((u >> 8) & 0xFF) + "." + (u & 0xFF);
     }
 
     private static String asString(Object value, String fallback) { return value == null ? fallback : String.valueOf(value); }
@@ -682,8 +1121,18 @@ public final class ServerFinderClient {
         final List<Object> widgets = new ArrayList<>(), resultButtons = new ArrayList<>(), resultAddButtons = new ArrayList<>(), resultDetailButtons = new ArrayList<>(), subWidgets = new ArrayList<>();
         final LinkedHashSet<String> seenEndpoints = new LinkedHashSet<>();
         final List<ServerRecord> currentBatch = new ArrayList<>();
+        final EnumMap<Provider, Integer> providerRequestCounts = new EnumMap<>(Provider.class);
+        final EnumMap<Provider, Integer> providerDuplicateOnlyStreaks = new EnumMap<>(Provider.class);
+        final EnumSet<Provider> disabledProviders = EnumSet.noneOf(Provider.class);
         boolean open, loading, autoAdd, exhausted, apiKeyDisabledForSession, apiKeyAcceptedThisSession;
-        int versionIndex, minIndex, maxIndex, sortIndex, serverTypeIndex, nextApiPage, autoAddedThisSession, blockedPage;
+        int versionIndex, minIndex, maxIndex, sortIndex, serverTypeIndex, sourceIndex, autoAddedThisSession, blockedPage, allSourceCursor;
+        long autoAddScheduleToken, searchGeneration;
+        int breakBlocksCurrentPage, breakBlocksApiResults, breakBlocksProbeAttempts, breakBlocksStatusReplies, breakBlocksLiveVerified;
+        int breakBlocksDnsFailures, breakBlocksUnreachableFailures, breakBlocksTimeoutFailures, breakBlocksProbeErrors, breakBlocksIncompatibleReplies;
+        int statusProbeAttempts, statusFirstPasses, statusSecondPasses, liveVerified, statusRejected;
+        int statusDnsFailures, statusUnreachableFailures, statusTimeoutFailures, statusProbeErrors;
+        String breakBlocksLastProbeFailure = "", lastProbeFailure = "";
+        Provider activeProvider;
         List<ServerRecord> results = List.of();
         Object versionButton, minButton, maxButton, serverTypeButton, findButton, autoButton, resetButton, closeButton, sortButton, settingsButton, blockedButton, statsButton, statusButton;
         OverlayState(Object client, Object screen, int width, int height) { this.client = client; this.screen = screen; this.width = width; this.height = height; }
@@ -693,11 +1142,12 @@ public final class ServerFinderClient {
     record SearchResult(List<ServerRecord> servers, int displayed, int total, int filtered) {}
     record ServerRecord(String address, int port, String version, int playersOnline, int playersMax,
                         String motd, String country, String countryCode, String city, String region,
-                        String lastPing, String modpack, boolean offlineMode, List<String> plugins, int protocol) {
+                        String lastPing, String modpack, boolean offlineMode, boolean whitelisted,
+                        List<String> plugins, int protocol, String source) {
         ServerRecord withLiveVersion(String liveVersion, int liveProtocol) {
             return new ServerRecord(address, port, liveVersion == null || liveVersion.isBlank() ? version : liveVersion,
                     playersOnline, playersMax, motd, country, countryCode, city, region, lastPing, modpack,
-                    offlineMode, plugins, liveProtocol);
+                    offlineMode, whitelisted, plugins, liveProtocol, source);
         }
         String endpoint() { return port == 25565 ? address : address + ":" + port; }
         String displayName() { return "Zazu " + address + " [" + version + "]"; }
@@ -715,11 +1165,7 @@ public final class ServerFinderClient {
             Object list = createLoadedList(client);
             if (findServer(list, record.endpoint()) != null) return false;
             Object data = createServerData(record.displayName(), record.endpoint());
-            if (!invokeAdd(list, data)) {
-                List<Object> backing = mutableBackingList(list);
-                if (backing == null) throw new IllegalStateException("Could not access Minecraft's server list.");
-                backing.add(data);
-            }
+            addServerData(list, data);
             save(list);
             ToolState.recordAdded(record.endpoint(), record.version(), record.protocol());
             ServerCategoryStore.markScanned(record.endpoint());
@@ -730,7 +1176,8 @@ public final class ServerFinderClient {
             Object list = createLoadedList(client);
             Object server = findServer(list, endpoint);
             if (server == null) return false;
-            if (serverName(server).startsWith("★ ")) return false;
+            if (serverName(server).startsWith("★ ") || ServerCategoryStore.isFavourite(endpoint)) return false;
+            ServerCategoryStore.recordUndo(serverName(server), endpoint);
             if (!invokeRemove(list, server)) {
                 List<Object> backing = mutableBackingList(list);
                 if (backing == null || !backing.remove(server)) throw new IllegalStateException("Could not remove the server.");
@@ -741,10 +1188,21 @@ public final class ServerFinderClient {
             return true;
         }
 
+        static void addServerData(Object list, Object data) throws Exception {
+            if (!invokeAdd(list, data)) {
+                List<Object> backing = mutableBackingList(list);
+                if (backing == null) throw new IllegalStateException("Could not access Minecraft's server list.");
+                backing.add(data);
+            }
+        }
+
         static int countFavourites(Object client) {
             try {
                 int count = 0;
-                for (Object server : servers(createLoadedList(client))) if (serverName(server).startsWith("★ ")) count++;
+                for (Object server : servers(createLoadedList(client))) {
+                    String endpoint = serverEndpoint(server);
+                    if (serverName(server).startsWith("★ ") || ServerCategoryStore.isFavourite(endpoint)) count++;
+                }
                 return count;
             } catch (Throwable ignored) { return 0; }
         }
@@ -826,6 +1284,13 @@ public final class ServerFinderClient {
             Field f = Reflection.findField(server.getClass(), "name");
             if (f == null) throw new NoSuchFieldException("ServerData.name field not found");
             f.set(server, name);
+        }
+
+        static void setServerEndpoint(Object server, String endpoint) throws Exception {
+            Field f = Reflection.findField(server.getClass(), "ip");
+            if (f == null) f = Reflection.findField(server.getClass(), "address");
+            if (f == null) throw new NoSuchFieldException("ServerData address field not found");
+            f.set(server, endpoint);
         }
 
         private static boolean invokeAdd(Object list, Object server) throws Exception {

@@ -18,6 +18,8 @@ final class ToolState {
     static int maxIndex = 7;
     static int sortIndex = 0;
     static int serverTypeIndex = 0;
+    static int finderSourceIndex = 0;
+    static int breakBlocksMaxAgeDays = 30;
     static long addedCount = 0;
     static long deletedCount = 0;
     private static String breakBlocksApiKey = "";
@@ -58,6 +60,8 @@ final class ToolState {
         maxIndex = integer(p, "maxIndex", 7);
         sortIndex = integer(p, "sortIndex", 0);
         serverTypeIndex = integer(p, "serverTypeIndex", 0);
+        finderSourceIndex = integer(p, "finderSourceIndex", 0);
+        breakBlocksMaxAgeDays = normalizeBreakBlocksAge(integer(p, "breakBlocksMaxAgeDays", 30));
         addedCount = longValue(p, "addedCount", 0);
         deletedCount = longValue(p, "deletedCount", 0);
         breakBlocksApiKey = p.getProperty("breakBlocksApiKey", "").trim();
@@ -72,7 +76,7 @@ final class ToolState {
         decodeMap(p.getProperty("addedProtocols", ""), ADDED_PROTOCOLS);
 
         // Create/migrate the config so users always have an obvious blank API-key field to fill in.
-        if (!configExisted || !p.containsKey("breakBlocksApiKey")) save();
+        if (!configExisted || !p.containsKey("breakBlocksApiKey") || !p.containsKey("breakBlocksMaxAgeDays")) save();
         else restrictConfigPermissions();
     }
 
@@ -93,6 +97,9 @@ final class ToolState {
         p.setProperty("maxIndex", String.valueOf(maxIndex));
         p.setProperty("sortIndex", String.valueOf(sortIndex));
         p.setProperty("serverTypeIndex", String.valueOf(serverTypeIndex));
+        p.setProperty("finderSourceIndex", String.valueOf(finderSourceIndex));
+        breakBlocksMaxAgeDays = normalizeBreakBlocksAge(breakBlocksMaxAgeDays);
+        p.setProperty("breakBlocksMaxAgeDays", String.valueOf(breakBlocksMaxAgeDays));
         p.setProperty("addedCount", String.valueOf(addedCount));
         p.setProperty("deletedCount", String.valueOf(deletedCount));
         p.setProperty("breakBlocksApiKey", breakBlocksApiKey == null ? "" : breakBlocksApiKey.trim());
@@ -200,6 +207,13 @@ final class ToolState {
     private static long longValue(Properties p, String key, long fallback) {
         try { return Long.parseLong(p.getProperty(key, String.valueOf(fallback)).trim()); }
         catch (Exception ignored) { return fallback; }
+    }
+
+    private static int normalizeBreakBlocksAge(int days) {
+        return switch (days) {
+            case 1, 7, 14, 21, 30 -> days;
+            default -> 30;
+        };
     }
 
     private static String encodeSet(Collection<String> values) {

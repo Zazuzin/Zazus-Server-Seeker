@@ -155,6 +155,30 @@ final class Reflection {
         throw new NoSuchMethodException("Screens.getWidgets(Screen)");
     }
 
+    /** Returns every distinct object referenced by Screen list fields, including
+     * Fabric's clickable widget list plus renderables/narratables. This is used
+     * only for duplicate-control cleanup; callers must operate on a snapshot. */
+    static List<Object> screenListElements(Object screen) {
+        if (screen == null) return List.of();
+        ArrayList<Object> out = new ArrayList<>();
+        Set<Object> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        try {
+            for (Object value : widgets(screen)) if (value != null && seen.add(value)) out.add(value);
+        } catch (Throwable ignored) {}
+        for (Class<?> c = screen.getClass(); c != null; c = c.getSuperclass()) {
+            for (Field f : c.getDeclaredFields()) {
+                if (!List.class.isAssignableFrom(f.getType())) continue;
+                try {
+                    f.trySetAccessible();
+                    Object value = f.get(screen);
+                    if (!(value instanceof List<?> list)) continue;
+                    for (Object element : list) if (element != null && seen.add(element)) out.add(element);
+                } catch (Throwable ignored) {}
+            }
+        }
+        return out;
+    }
+
     static void addWidget(Object screen, Object widget) throws Exception {
         if (screen == null || widget == null) return;
         for (String n : List.of("addRenderableWidget", "addDrawableChild", "addWidget")) {
@@ -169,14 +193,22 @@ final class Reflection {
 
     static void removeWidget(Object screen, Object widget) {
         if (screen == null || widget == null) return;
+
+        // Invoke Minecraft's removal hook when available, but always continue with
+        // an identity sweep. On 26.2 some Screen implementations remove a widget
+        // from children while leaving the same object in renderables/narratables,
+        // which produces the ghost/overlapping buttons seen on Multiplayer.
         Method remove = findCompatibleMethod(screen.getClass(), "removeWidget", widget);
         if (remove == null) remove = findCompatibleMethod(screen.getClass(), "remove", widget);
         if (remove != null) {
-            try { remove.invoke(screen, widget); return; } catch (Throwable ignored) {}
+            try { remove.invoke(screen, widget); } catch (Throwable ignored) {}
         }
 
-        // Fallback for mapping/layout changes: remove the exact widget identity
-        // from Screen's children/renderables/narratables lists.
+        try {
+            List<Object> fabricWidgets = widgets(screen);
+            fabricWidgets.removeIf(v -> v == widget);
+        } catch (Throwable ignored) {}
+
         for (Class<?> c = screen.getClass(); c != null; c = c.getSuperclass()) {
             for (Field f : c.getDeclaredFields()) {
                 if (!List.class.isAssignableFrom(f.getType())) continue;

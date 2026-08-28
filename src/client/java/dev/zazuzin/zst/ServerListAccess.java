@@ -17,7 +17,9 @@ final class ServerListAccess {
             String endpoint = endpoint(data);
             if (endpoint.isBlank()) continue;
             String name = name(data);
-            out.add(new Saved(data, endpoint, name, name.startsWith("★ ")));
+            boolean starred = name.startsWith("★ ");
+            ServerCategoryStore.migrateFavourite(endpoint, starred);
+            out.add(new Saved(data, endpoint, name, starred || ServerCategoryStore.isFavourite(endpoint)));
         }
         return out;
     }
@@ -33,15 +35,32 @@ final class ServerListAccess {
         if (source == null || listWidget == null) return;
 
         Object filtered = createEmptyServerList(client);
-        for (Object data : serverDataList(source)) {
-            String endpoint = endpoint(data);
-            boolean favourite = name(data).startsWith("★ ");
-            boolean include = tab == null || switch (tab) {
-                case FAVOURITES -> favourite;
-                case SERVERS -> !favourite && !ServerCategoryStore.isScanned(endpoint);
-                case SCANNED -> !favourite && ServerCategoryStore.isScanned(endpoint);
-            };
-            if (include) addServerData(filtered, data);
+        List<Object> sourceData = serverDataList(source);
+
+        if (tab == ServerCategoryStore.Tab.RECENT) {
+            LinkedHashMap<String, Object> byEndpoint = new LinkedHashMap<>();
+            for (Object data : sourceData) {
+                String key = normalize(endpoint(data));
+                if (!key.isBlank()) byEndpoint.putIfAbsent(key, data);
+            }
+            // Recent Servers is deliberately ordered newest-first, independent
+            // of the order entries happen to have in servers.dat.
+            for (String recent : ServerCategoryStore.recentEndpoints()) {
+                Object data = byEndpoint.get(normalize(recent));
+                if (data != null) addServerData(filtered, data);
+            }
+        } else {
+            for (Object data : sourceData) {
+                String endpoint = endpoint(data);
+                boolean favourite = name(data).startsWith("★ ") || ServerCategoryStore.isFavourite(endpoint);
+                boolean include = tab == null || switch (tab) {
+                    case FAVOURITES -> favourite;
+                    case SERVERS -> !favourite && !ServerCategoryStore.isScanned(endpoint);
+                    case SCANNED -> !favourite && ServerCategoryStore.isScanned(endpoint);
+                    case RECENT -> false;
+                };
+                if (include) addServerData(filtered, data);
+            }
         }
 
         Method update = compatibleOneArgMethod(listWidget.getClass(), "updateOnlineServers", filtered);
@@ -156,7 +175,9 @@ final class ServerListAccess {
             String endpoint = endpoint(data);
             if (endpoint.isBlank()) continue;
             String name = name(data);
-            out.add(new Saved(data, endpoint, name, name.startsWith("★ ")));
+            boolean starred = name.startsWith("★ ");
+            ServerCategoryStore.migrateFavourite(endpoint, starred);
+            out.add(new Saved(data, endpoint, name, starred || ServerCategoryStore.isFavourite(endpoint)));
         }
         return out;
     }
@@ -256,28 +277,173 @@ final class ServerListAccess {
         return value == null ? "" : String.valueOf(value);
     }
 
+    /**
+     * Removes an endpoint from the JoinMultiplayerScreen's live ServerList and
+     * saves that same list. This matters for whitelist cleanup: deleting only
+     * through a freshly loaded ServerList can be undone when the still-open
+     * Multiplayer screen later writes its stale in-memory list back to
+     * servers.dat.
+     */
+    static boolean removeFromScreenServerList(Object screen, String targetEndpoint) {
+        String target = normalize(targetEndpoint);
+        if (screen == null || target.isBlank()) return false;
+        try {
+            Object list = serverListObject(screen);
+            if (list == null) return false;
+            recordUndoFromList(list, target);
+            boolean changed = removeEndpointFromList(list, target);
+            if (changed) saveServerList(list);
+
+            // Keep the currently rendered category backing lists in sync too,
+            // so returning from the disconnect screen cannot leave a ghost row.
+            for (List<Object> entries : serverEntryLists(screen)) {
+                try {
+                    entries.removeIf(entry -> {
+                        Object data = serverData(entry);
+                        return data != null && sameEndpoint(endpoint(data), targetEndpoint);
+                    });
+                } catch (Throwable ignored) {}
+            }
+            return changed;
+        } catch (Throwable t) {
+            System.err.println("[Zazu's Server Tool] Live Multiplayer server deletion failed for "
+                    + targetEndpoint + ": " + root(t));
+            return false;
+        }
+    }
+
     static boolean forceRemove(Object client, String targetEndpoint) {
         String target = normalize(targetEndpoint);
         if (target.isBlank()) return false;
         try {
             Object list = createLoadedList(client);
-            List<Object> all = servers(list);
-            Object found = null;
-            for (Object data : all) {
-                if (normalize(endpoint(data)).equals(target)) { found = data; break; }
+            recordUndoFromList(list, target);
+            boolean changed = removeEndpointFromList(list, target);
+            if (!changed) return false;
+            saveServerList(list);
+
+            // Verify the persisted result from a fresh ServerList. This catches
+            // false-positive reflective remove calls instead of reporting that a
+            // whitelist server was deleted when it is still in servers.dat.
+            Object verify = createLoadedList(client);
+            for (Object data : allServerData(verify)) {
+                if (sameEndpoint(endpoint(data), targetEndpoint)) return false;
             }
-            if (found == null) return false;
-            if (!invokeRemove(list, found)) {
-                if (!all.remove(found)) return false;
-            }
-            Method save = RuntimeAccess.findMethod(list.getClass(), "save", 0);
-            if (save == null) throw new NoSuchMethodException("ServerList.save()");
-            save.invoke(list);
             return true;
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Tool] Forced whitelist deletion failed for " + targetEndpoint + ": " + root(t));
+            System.err.println("[Zazu's Server Tool] Forced server deletion failed for " + targetEndpoint + ": " + root(t));
             return false;
         }
+    }
+
+    static boolean isFavouriteEndpoint(Object client, Object screen, String targetEndpoint) {
+        String target = normalize(targetEndpoint);
+        if (target.isBlank()) return false;
+        try {
+            Object live = serverListObject(screen);
+            if (containsFavourite(live, target)) return true;
+        } catch (Throwable ignored) {}
+        try {
+            return containsFavourite(createLoadedList(client), target);
+        } catch (Throwable t) {
+            System.err.println("[Zazu's Server Tool] Favourite safety check failed for "
+                    + targetEndpoint + ": " + root(t));
+            return false;
+        }
+    }
+
+    private static boolean containsFavourite(Object list, String normalizedTarget) {
+        if (list == null) return false;
+        for (Object data : allServerData(list)) {
+            if (sameEndpoint(endpoint(data), normalizedTarget) && isFavouriteData(data)) return true;
+        }
+        return false;
+    }
+
+    private static boolean isFavouriteData(Object data) {
+        return name(data).startsWith(MultiplayerManagementEntrypoint.FAV_PREFIX)
+                || ServerCategoryStore.isFavourite(endpoint(data));
+    }
+
+    private static void recordUndoFromList(Object list, String normalizedTarget) {
+        for (Object data : allServerData(list)) if (sameEndpoint(endpoint(data), normalizedTarget)) {
+            if (!isFavouriteData(data)) ServerCategoryStore.recordUndo(name(data), endpoint(data));
+            return;
+        }
+    }
+
+    private static boolean removeEndpointFromList(Object list, String normalizedTarget) {
+        if (list == null || normalizedTarget == null || normalizedTarget.isBlank()) return false;
+        List<Object> candidates = allServerData(list);
+        ArrayList<Object> matches = new ArrayList<>();
+        for (Object data : candidates) {
+            if (sameEndpoint(endpoint(data), normalizedTarget) && !isFavouriteData(data)) matches.add(data);
+        }
+        if (matches.isEmpty()) return false;
+
+        boolean changed = false;
+        // Prefer ServerList's own remove API so any secondary bookkeeping is
+        // updated. Remove every matching entry defensively, then sweep all
+        // backing lists because 26.2 can maintain visible/hidden collections.
+        for (Object match : matches) {
+            if (invokeRemove(list, match)) changed = true;
+        }
+        for (List<Object> backing : allServerDataLists(list)) {
+            try {
+                if (backing.removeIf(data -> data != null
+                        && sameEndpoint(endpoint(data), normalizedTarget)
+                        && !isFavouriteData(data))) changed = true;
+            } catch (Throwable ignored) {}
+        }
+        return changed;
+    }
+
+    private static void saveServerList(Object list) throws Exception {
+        Method save = RuntimeAccess.findMethod(list.getClass(), "save", 0);
+        if (save == null) throw new NoSuchMethodException("ServerList.save()");
+        save.invoke(list);
+    }
+
+    private static List<Object> allServerData(Object list) {
+        ArrayList<Object> out = new ArrayList<>();
+        Set<Object> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (List<Object> backing : allServerDataLists(list)) {
+            for (Object data : backing) if (data != null && seen.add(data)) out.add(data);
+        }
+        Object sizeValue = RuntimeAccess.invoke(list, "size");
+        if (sizeValue instanceof Number n) {
+            for (int i = 0; i < n.intValue(); i++) {
+                Object data = RuntimeAccess.invoke(list, "get", i);
+                if (data != null && seen.add(data)) out.add(data);
+            }
+        }
+        return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<List<Object>> allServerDataLists(Object list) {
+        ArrayList<List<Object>> out = new ArrayList<>();
+        Set<List<Object>> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        if (list == null) return out;
+        for (Class<?> c = list.getClass(); c != null; c = c.getSuperclass()) {
+            for (Field field : c.getDeclaredFields()) {
+                if (!List.class.isAssignableFrom(field.getType())) continue;
+                try {
+                    field.trySetAccessible();
+                    Object value = field.get(list);
+                    if (!(value instanceof List<?> raw)) continue;
+                    List<Object> candidate = (List<Object>) raw;
+                    boolean serverLike = candidate.isEmpty() && field.getName().toLowerCase(Locale.ROOT).contains("server");
+                    if (!serverLike) {
+                        for (Object element : candidate) {
+                            if (element != null && !endpoint(element).isBlank()) { serverLike = true; break; }
+                        }
+                    }
+                    if (serverLike && seen.add(candidate)) out.add(candidate);
+                } catch (Throwable ignored) {}
+            }
+        }
+        return out;
     }
 
     static String signature(List<Saved> servers) {
@@ -338,6 +504,43 @@ final class ServerListAccess {
             }
         }
         return false;
+    }
+
+    static boolean sameEndpoint(String a, String b) {
+        String left = normalize(a);
+        String right = normalize(b);
+        if (left.equals(right)) return !left.isBlank();
+        if (left.isBlank() || right.isBlank()) return false;
+        return defaultPortIdentity(left).equals(defaultPortIdentity(right));
+    }
+
+    private static String defaultPortIdentity(String endpoint) {
+        String value = normalize(endpoint);
+        if (value.isBlank()) return value;
+        if (value.startsWith("minecraft://")) value = value.substring("minecraft://".length());
+
+        // [IPv6] and [IPv6]:port
+        if (value.startsWith("[")) {
+            int close = value.indexOf(']');
+            if (close > 0) {
+                String host = value.substring(0, close + 1);
+                String rest = value.substring(close + 1);
+                if (rest.isBlank()) return host + ":25565";
+                return host + rest;
+            }
+        }
+
+        int first = value.indexOf(':');
+        int last = value.lastIndexOf(':');
+        if (first < 0) return value + ":25565";
+        // A single colon is the ordinary host:port form. Raw IPv6 contains
+        // multiple colons and is left untouched rather than guessed.
+        if (first == last) {
+            String port = value.substring(first + 1);
+            if (port.isBlank()) return value.substring(0, first) + ":25565";
+            return value;
+        }
+        return value;
     }
 
     static String normalize(String endpoint) {
