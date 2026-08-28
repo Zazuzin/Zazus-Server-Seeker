@@ -2,12 +2,10 @@
 
 **Zazu's Server Tool** is a client-side Fabric mod for **Minecraft Java Edition 26.2** that makes discovering, organising and testing multiplayer servers easier from inside Minecraft.
 
-The mod adds a multi-source server Finder, separates saved servers into useful categories, provides favourites and management controls, and includes sequential Auto Join for newly scanned servers. It is a standalone Fabric mod and does **not** require Meteor Client.
+The mod adds a multi-source server finder, separates saved servers into useful categories, provides favourites and management controls, and includes sequential Auto Join for newly scanned servers.
 
 Source code and releases: [github.com/Zazuzin/Zazus-Server-Scanner](https://github.com/Zazuzin/Zazus-Server-Scanner)  
 Bug reports and feature requests: [GitHub Issues](https://github.com/Zazuzin/Zazus-Server-Scanner/issues)
-
-## What the mod does
 
 Opening Minecraft's **Multiplayer** screen gives you a category hub with:
 
