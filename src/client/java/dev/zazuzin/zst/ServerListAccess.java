@@ -31,6 +31,18 @@ final class ServerListAccess {
      */
     static void applyCategory(Object client, Object screen, ServerCategoryStore.Tab tab) throws Exception {
         Object source = serverListObject(screen);
+        applyCategoryFromSource(client, screen, source, tab);
+    }
+
+    /** Reloads servers.dat without rebuilding the Multiplayer screen/footer. */
+    static void reloadCategory(Object client, Object screen, ServerCategoryStore.Tab tab) throws Exception {
+        Object source = ServerFinderClient.ServerListBridge.createLoadedList(client);
+        installServerListObject(screen, source);
+        applyCategoryFromSource(client, screen, source, tab);
+    }
+
+    private static void applyCategoryFromSource(Object client, Object screen, Object source,
+                                                ServerCategoryStore.Tab tab) throws Exception {
         Object listWidget = listWidget(screen);
         if (source == null || listWidget == null) return;
 
@@ -67,6 +79,20 @@ final class ServerListAccess {
         if (update == null) update = compatibleOneArgMethod(listWidget.getClass(), "setServers", filtered);
         if (update == null) throw new NoSuchMethodException("ServerSelectionList.updateOnlineServers(ServerList)");
         update.invoke(listWidget, filtered);
+    }
+
+    private static void installServerListObject(Object screen, Object loaded) {
+        if (screen == null || loaded == null) return;
+        for (Class<?> c = screen.getClass(); c != null; c = c.getSuperclass()) {
+            for (Field field : c.getDeclaredFields()) {
+                if (!field.getType().isInstance(loaded)) continue;
+                try {
+                    field.trySetAccessible();
+                    field.set(screen, loaded);
+                    return;
+                } catch (Throwable ignored) {}
+            }
+        }
     }
 
     private static Object serverListObject(Object screen) {

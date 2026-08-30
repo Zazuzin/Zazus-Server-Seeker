@@ -22,11 +22,14 @@ import java.util.regex.Pattern;
  * putting Finder traffic into Minecraft's native networking lifecycle.
  */
 final class VanillaStatusProbe {
-    private static final int CONNECT_TIMEOUT_MS = 3_000;
-    private static final int READ_TIMEOUT_MS = 3_000;
+    private static final int CONNECT_TIMEOUT_MS = 10_000;
+    private static final int READ_TIMEOUT_MS = 5_000;
     private static final int PONG_TIMEOUT_MS = 1_500;
     private static final int MAX_PACKET_BYTES = 2 * 1024 * 1024;
-    private static final int MAX_IN_FLIGHT = 4;
+    // A provider page contains at most 20 candidates. Keeping one bounded
+    // worker per candidate prevents dead endpoints from creating multiple
+    // sequential timeout waves on later searches.
+    private static final int MAX_IN_FLIGHT = 20;
     private static final int MAX_QUEUED = 128;
     private static final int FALLBACK_PROTOCOL_26_2 = 776;
     private static final Map<String, LatencySample> LATENCY = new ConcurrentHashMap<>();

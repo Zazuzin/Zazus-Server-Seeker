@@ -5,9 +5,8 @@ import java.util.*;
 import java.util.function.Consumer;
 
 /**
- * Small reflection compatibility layer. The released 0.3.x mod intentionally
- * avoided hard-linking most Minecraft GUI classes so minor mapping/API changes
- * would not break class loading.
+ * Small reflection compatibility layer. Avoiding hard links to most Minecraft
+ * GUI classes reduces breakage from mapping and API changes.
  */
 final class Reflection {
     private Reflection() {}

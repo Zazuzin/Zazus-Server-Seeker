@@ -5,6 +5,7 @@
   "name": "Zazu's Server Seeker",
   "description": "Client-side Minecraft server discovery and management with categories, favourites, verified scanning, sequential Auto Join, deletion recovery and optional ViaFabricPlus integration.",
   "authors": ["Zazuzin"],
+  "license": "GPL-3.0-only",
   "icon": "assets/zazus-server-tool/icon.png",
   "contact": {
     "homepage": "https://github.com/Zazuzin/Zazus-Server-Scanner",

@@ -13,7 +13,7 @@ final class ServerCategoryStore {
     private static final LinkedHashSet<String> SCANNED = new LinkedHashSet<>();
     private static final LinkedHashSet<String> FAVOURITES = new LinkedHashSet<>();
     private static final Map<String, Health> HEALTH = new LinkedHashMap<>();
-    private static Undo undo;
+    private static List<Undo> undo = List.of();
     private static final LinkedList<String> RECENT = new LinkedList<>();
     private static final int MAX_RECENT = 5;
     private static Path file;
@@ -40,10 +40,22 @@ final class ServerCategoryStore {
         decode(p.getProperty("scanned", ""), SCANNED);
         decode(p.getProperty("favourites", ""), FAVOURITES);
         decodeHealth(p);
-        String undoEndpoint = decodeOne(p.getProperty("undo.endpoint", ""));
-        if (!undoEndpoint.isBlank()) undo = new Undo(decodeOne(p.getProperty("undo.name", "")), undoEndpoint,
-                Boolean.parseBoolean(p.getProperty("undo.favourite", "false")),
-                Boolean.parseBoolean(p.getProperty("undo.scanned", "false")));
+        int undoCount = integer(p.getProperty("undo.count", "0"), 0);
+        ArrayList<Undo> loadedUndo = new ArrayList<>();
+        for (int i = 0; i < undoCount; i++) {
+            String prefix = "undo." + i + ".";
+            String endpoint = decodeOne(p.getProperty(prefix + "endpoint", ""));
+            if (!endpoint.isBlank()) loadedUndo.add(new Undo(decodeOne(p.getProperty(prefix + "name", "")), endpoint,
+                    Boolean.parseBoolean(p.getProperty(prefix + "favourite", "false")),
+                    Boolean.parseBoolean(p.getProperty(prefix + "scanned", "false"))));
+        }
+        if (loadedUndo.isEmpty()) {
+            String legacyEndpoint = decodeOne(p.getProperty("undo.endpoint", ""));
+            if (!legacyEndpoint.isBlank()) loadedUndo.add(new Undo(decodeOne(p.getProperty("undo.name", "")), legacyEndpoint,
+                    Boolean.parseBoolean(p.getProperty("undo.favourite", "false")),
+                    Boolean.parseBoolean(p.getProperty("undo.scanned", "false"))));
+        }
+        undo = List.copyOf(loadedUndo);
         decodeList(p.getProperty("recent", ""), RECENT);
         while (RECENT.size() > MAX_RECENT) RECENT.removeLast();
     }
@@ -55,7 +67,7 @@ final class ServerCategoryStore {
             String e = normalize(endpoint);
             if (!e.isBlank()) KNOWN.add(e);
         }
-        // Existing 0.3.22 entries are treated as already-established Servers.
+        // Existing entries are treated as established Servers during migration.
         migrated = true;
         save();
         System.out.println("[Zazu's Server Seeker] Multiplayer tabs migration complete; existing servers kept in Servers/Favourites.");
@@ -106,42 +118,102 @@ final class ServerCategoryStore {
         if (changed) save();
     }
 
-    static synchronized int healthFailures(String endpoint) { load(); return HEALTH.getOrDefault(normalize(endpoint), Health.EMPTY).failures; }
+    static synchronized int healthFailures(String endpoint) {
+        load();
+        return HEALTH.getOrDefault(normalize(endpoint), Health.EMPTY).failures;
+    }
+
     static synchronized void recordHealthSuccess(String endpoint) {
-        load(); String e=normalize(endpoint); if (e.isBlank()) return;
-        HEALTH.put(e, new Health(0, System.currentTimeMillis(), HEALTH.getOrDefault(e, Health.EMPTY).lastFailure)); save();
+        load();
+        String e = normalize(endpoint);
+        if (e.isBlank()) return;
+        HEALTH.put(e, new Health(0, System.currentTimeMillis(), HEALTH.getOrDefault(e, Health.EMPTY).lastFailure));
+        save();
     }
+
     static synchronized int recordHealthFailure(String endpoint) {
-        load(); String e=normalize(endpoint); if (e.isBlank()) return 0;
-        Health h=HEALTH.getOrDefault(e, Health.EMPTY); Health n=new Health(h.failures+1,h.lastSuccess,System.currentTimeMillis()); HEALTH.put(e,n); save(); return n.failures;
+        load();
+        String e = normalize(endpoint);
+        if (e.isBlank()) return 0;
+        Health current = HEALTH.getOrDefault(e, Health.EMPTY);
+        Health updated = new Health(current.failures + 1, current.lastSuccess, System.currentTimeMillis());
+        HEALTH.put(e, updated);
+        save();
+        return updated.failures;
     }
-    static synchronized void resetHealth(String endpoint) { load(); HEALTH.remove(normalize(endpoint)); save(); }
+
+    static synchronized void resetHealth(String endpoint) {
+        load();
+        HEALTH.remove(normalize(endpoint));
+        save();
+    }
+
     static synchronized String healthSummary(String endpoint) {
-        load(); Health h=HEALTH.getOrDefault(normalize(endpoint), Health.EMPTY);
+        load();
+        Health h = HEALTH.getOrDefault(normalize(endpoint), Health.EMPTY);
         return h.failures == 0 ? "Health OK" : "Health " + h.failures + "/3";
     }
 
     static synchronized void recordUndo(String name, String endpoint) {
-        load(); String e=normalize(endpoint); if (e.isBlank()) return;
+        load();
+        String e = normalize(endpoint);
+        if (e.isBlank()) return;
         backupServersFile();
-        undo = new Undo(name == null ? "" : name, endpoint, isFavourite(endpoint), isScanned(endpoint));
+        undo = List.of(new Undo(name == null ? "" : name, endpoint, isFavourite(endpoint), isScanned(endpoint)));
         save();
     }
 
-    static synchronized boolean hasUndo() { load(); return undo != null; }
-    static synchronized boolean undoLastDelete(Object client) {
-        load(); if (undo == null) return false;
-        try {
-            Object list=ServerFinderClient.ServerListBridge.createLoadedList(client);
-            if (ServerFinderClient.ServerListBridge.findServer(list, undo.endpoint) == null) {
-                String name=undo.name.isBlank()?"Restored "+undo.endpoint:undo.name;
-                Object data=ServerFinderClient.ServerListBridge.createServerData(name, undo.endpoint);
-                ServerFinderClient.ServerListBridge.addServerData(list,data); ServerFinderClient.ServerListBridge.save(list);
+    static synchronized void recordUndoBatch(Collection<DeletedServer> deleted) {
+        load();
+        ArrayList<Undo> batch = new ArrayList<>();
+        if (deleted != null) {
+            for (DeletedServer server : deleted) {
+                if (server == null) continue;
+                String endpoint = normalize(server.endpoint);
+                if (endpoint.isBlank()) continue;
+                batch.add(new Undo(server.name == null ? "" : server.name, endpoint,
+                        server.favourite, server.scanned));
             }
-            setFavourite(undo.endpoint,undo.favourite);
-            if (undo.scanned) markScanned(undo.endpoint); else promoteVerified(undo.endpoint);
-            undo=null; save(); return true;
-        } catch (Throwable t) { System.err.println("[Zazu's Server Seeker] Undo failed: "+t); return false; }
+        }
+        if (batch.isEmpty()) return;
+        backupServersFile();
+        undo = List.copyOf(batch);
+        save();
+    }
+
+    static synchronized boolean hasUndo() {
+        load();
+        return !undo.isEmpty();
+    }
+
+    static synchronized boolean undoLastDelete(Object client) {
+        load();
+        if (undo.isEmpty()) return false;
+        try {
+            Object list = ServerFinderClient.ServerListBridge.createLoadedList(client);
+            int restored = 0;
+            for (Undo entry : undo) {
+                if (ServerFinderClient.ServerListBridge.findServer(list, entry.endpoint) == null) {
+                    String name = entry.name.isBlank() ? "Restored " + entry.endpoint : entry.name;
+                    Object data = ServerFinderClient.ServerListBridge.createServerData(name, entry.endpoint);
+                    ServerFinderClient.ServerListBridge.addServerData(list, data);
+                    restored++;
+                }
+                KNOWN.add(entry.endpoint);
+                if (entry.favourite) FAVOURITES.add(entry.endpoint); else FAVOURITES.remove(entry.endpoint);
+                if (entry.scanned) SCANNED.add(entry.endpoint); else SCANNED.remove(entry.endpoint);
+            }
+            ServerFinderClient.ServerListBridge.save(list);
+            int batchSize = undo.size();
+            undo = List.of();
+            save();
+            System.out.println("[Zazu's Server Seeker] Restored " + restored + "/" + batchSize
+                    + " server(s) from the last delete action.");
+            return true;
+        } catch (Throwable t) {
+            System.err.println("[Zazu's Server Seeker] Undo failed: " + t);
+            return false;
+        }
     }
 
     static synchronized void migrateFavourite(String endpoint, boolean starredName) {
@@ -186,7 +258,7 @@ final class ServerCategoryStore {
         return RECENT.contains(normalize(endpoint));
     }
 
-    /** Moves all persisted category metadata when Edit Server Info changes an address. */
+    /** Moves all persisted category metadata when a saved server address changes. */
     static synchronized void moveEndpoint(String oldEndpoint, String newEndpoint) {
         load();
         String oldValue = normalize(oldEndpoint);
@@ -233,9 +305,14 @@ final class ServerCategoryStore {
         p.setProperty("scanned", encode(SCANNED));
         p.setProperty("favourites", encode(FAVOURITES));
         for (Map.Entry<String,Health> e:HEALTH.entrySet()) p.setProperty("health."+encodeOne(e.getKey()),e.getValue().failures+","+e.getValue().lastSuccess+","+e.getValue().lastFailure);
-        if (undo != null) {
-            p.setProperty("undo.name",encodeOne(undo.name)); p.setProperty("undo.endpoint",encodeOne(undo.endpoint));
-            p.setProperty("undo.favourite",String.valueOf(undo.favourite)); p.setProperty("undo.scanned",String.valueOf(undo.scanned));
+        p.setProperty("undo.count", String.valueOf(undo.size()));
+        for (int i = 0; i < undo.size(); i++) {
+            Undo entry = undo.get(i);
+            String prefix = "undo." + i + ".";
+            p.setProperty(prefix + "name", encodeOne(entry.name));
+            p.setProperty(prefix + "endpoint", encodeOne(entry.endpoint));
+            p.setProperty(prefix + "favourite", String.valueOf(entry.favourite));
+            p.setProperty(prefix + "scanned", String.valueOf(entry.scanned));
         }
         p.setProperty("recent", encode(RECENT));
         try {
@@ -293,7 +370,12 @@ final class ServerCategoryStore {
         } catch(Throwable t){ System.err.println("[Zazu's Server Seeker] Server-list backup failed: "+t); }
     }
     private record Health(int failures,long lastSuccess,long lastFailure){ static final Health EMPTY=new Health(0,0,0); }
+    record DeletedServer(String name, String endpoint, boolean favourite, boolean scanned) {}
     private record Undo(String name,String endpoint,boolean favourite,boolean scanned){}
+
+    private static int integer(String value, int fallback) {
+        try { return Integer.parseInt(value); } catch (RuntimeException ignored) { return fallback; }
+    }
 
     private static void decode(String value, Set<String> output) {
         if (value == null || value.isBlank()) return;
