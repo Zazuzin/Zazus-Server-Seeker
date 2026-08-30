@@ -1,0 +1,2 @@
+7618fb16d89b886b18223c5ea0f148c14b3abe3058f6a26ccbe096c8c7195478  Zazus-Server-Seeker-0.4.0-beta.1+mc26.2.jar
+25320ac4fd31f7f696d001bac1a16e6fd25d0a315fd2037e7ee49e0f436e0fb1  Zazus-Server-Seeker-0.4.0-beta.1-full-source.zip
