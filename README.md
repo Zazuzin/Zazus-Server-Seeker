@@ -11,7 +11,7 @@ The mod adds a multi-source server Finder, separates saved servers into useful c
 Join the [Zazu's EyeBot Network Discord](https://discord.gg/TC4PhPx9sf) for support, beta testing and bug reports. Use the dedicated **Zazu's Server Seeker** channels so reports and suggestions are easy to follow.
 
 You can also submit bug reports and new features suggestions here 
-https://github.com/Zazuzin/Zazus-Server-Scanner/issues
+https://github.com/Zazuzin/Zazus-Server-Seeker/issues
 
 You can also find Zazuzin in the [BreakBlocks Discord](https://breakblocks.com/discord).
 
