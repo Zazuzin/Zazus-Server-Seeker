@@ -5,13 +5,13 @@
 **Zazu's Server Seeker** is a client-side Fabric mod for **Minecraft Java Edition 26.2** that makes discovering, organising and testing multiplayer servers easier from inside Minecraft.
 
 The mod adds a multi-source server Finder, separates saved servers into useful categories, provides favourites and management controls, and includes sequential Auto Join for newly scanned servers. It is a standalone Fabric mod and does **not** require Meteor Client.
-
-Source code and releases: [github.com/Zazuzin/Zazus-Server-Scanner](https://github.com/Zazuzin/Zazus-Server-Scanner)  
-Bug reports and feature requests: [GitHub Issues](https://github.com/Zazuzin/Zazus-Server-Scanner/issues)
-
+  
 ## Support and bug reports
 
 Join the [Zazu's EyeBot Network Discord](https://discord.gg/TC4PhPx9sf) for support, beta testing and bug reports. Use the dedicated **Zazu's Server Seeker** channels so reports and suggestions are easy to follow.
+
+You can also submit bug reports and new features suggests here 
+(https://github.com/Zazuzin/Zazus-Server-Scanner/issues)
 
 You can also find Zazuzin in the [BreakBlocks Discord](https://breakblocks.com/discord).
 
