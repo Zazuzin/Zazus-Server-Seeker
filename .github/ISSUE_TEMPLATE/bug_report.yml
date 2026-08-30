@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible problem in Zazu's Server Tool
+description: Report a reproducible problem in Zazu's Server Seeker
 title: "[Bug]: "
 labels: [bug]
 body:
@@ -38,7 +38,7 @@ body:
     attributes:
       label: Safety checks
       options:
-        - label: I tested with only one Zazu's Server Tool JAR installed.
+        - label: I tested with only one Zazu's Server Seeker JAR installed.
           required: true
         - label: I removed credentials and private information from attachments.
           required: true

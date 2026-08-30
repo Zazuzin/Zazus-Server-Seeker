@@ -5,6 +5,11 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 property() { sed -n "s/^$1=//p" "$ROOT/gradle.properties" | tail -n 1; }
 VERSION="$(property mod_version)"
 MC_VERSION="$(property minecraft_version)"
+test -s "$ROOT/LICENSE" || { echo "LICENSE is missing or empty" >&2; exit 1; }
+grep -q 'GNU GENERAL PUBLIC LICENSE' "$ROOT/LICENSE" || { echo "GPL-3.0 license text is missing" >&2; exit 1; }
+grep -q '"license": "GPL-3.0-only"' "$ROOT/src/main/resources/fabric.mod.json" || {
+  echo "Fabric GPL-3.0-only metadata is missing" >&2; exit 1;
+}
 JAR="${1:-$ROOT/build/libs/Zazus-Server-Seeker-${VERSION}+mc${MC_VERSION}.jar}"
 [[ -f "$JAR" ]] || { echo "JAR not found: $JAR" >&2; exit 1; }
 
@@ -13,6 +18,18 @@ grep -q 'undoLastDeleteButton' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabs
 }
 grep -q 'setVisibleActive(undoLastDelete, bulkDeleteView' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Undo Last Delete visibility is not restricted to Servers/Scanned Servers" >&2; exit 1;
+}
+grep -q 'changeResultPage(s, -1)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
+  echo "Finder Previous-page navigation is missing" >&2; exit 1;
+}
+grep -q 'changeResultPage(s, 1)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
+  echo "Finder Next-page navigation is missing" >&2; exit 1;
+}
+grep -q 'for (ServerRecord record : s.results) accumulated.put' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
+  echo "Finder does not retain verified results between batches" >&2; exit 1;
+}
+grep -q 'listBottom = Math.min(listBottom, footerTop - 4)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Per-server controls are not constrained above Minecraft's footer" >&2; exit 1;
 }
 
 unzip -t "$JAR" >/dev/null
@@ -63,9 +80,8 @@ if grep -R -n 'Minecraft.setScreen(Screen)' "$ROOT/src/client/java"; then
   exit 1
 fi
 
-# Regression guards for the stable v0.3.41 Multiplayer repair. Category switching must
-# use Minecraft's in-memory ServerSelectionList rebuild path, screen ownership
-# must be 26.2-aware, and the old widget-list replacement strategy must stay gone.
+# Multiplayer regression guards. Category switching uses Minecraft's in-memory
+# ServerSelectionList rebuild path and keeps screen ownership compatible with 26.2.
 grep -q 'updateOnlineServers' "$ROOT/src/client/java/dev/zazuzin/zst/ServerListAccess.java" || {
   echo "Missing in-memory category rebuild path" >&2; exit 1;
 }
@@ -78,24 +94,17 @@ grep -q 'getRowTop' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagement
 if grep -q 'replaceWidgetList' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java"; then
   echo "Legacy widget-list replacement strategy is still present" >&2; exit 1;
 fi
-if grep -q 'backButton' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java"; then
-  echo "Custom Back button returned; Multiplayer must use Minecraft's native Back control" >&2; exit 1;
+if grep -qE 'state\.(refreshButton|backButton) = makeButton' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java"; then
+  echo "Replacement footer buttons still overlap Minecraft's originals" >&2; exit 1;
 fi
-if grep -q 'refreshButton' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java"; then
-  echo "Custom Refresh button returned; Multiplayer must use Minecraft's native Refresh control" >&2; exit 1;
-fi
-if grep -qE 'normalizeVanillaFooter|captureAndRemoveVanillaNavigation|removeVanillaNavigationDuplicates|VANILLA_BUTTON_ROW_WIDTH' \
-    "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java"; then
-  echo "Footer manipulation returned; Back/Refresh must stay fully vanilla" >&2; exit 1;
-fi
-grep -q 'Minecraft.*native Back and Refresh' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
-  echo "Native Back/Refresh ownership guard is missing" >&2; exit 1;
+grep -q 'Math.max(rowRight + 16, scrollbarX + 16)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Favourite/Delete controls are not anchored beside the scrollbar" >&2; exit 1;
 }
 grep -q 'isNativeBackWidget' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Hub is not preserving Minecraft's native Back button" >&2; exit 1;
 }
-grep -q 'widgetLabel(widget).trim().equals("Refresh")' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
-  echo "Native Refresh category-preservation hook is missing" >&2; exit 1;
+grep -q 'removeNativeRefreshControls(state)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Native Refresh removal is missing" >&2; exit 1;
 }
 grep -q 'purgeStaleOwnedWidgetsExceptCurrent' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Stale Zazu navigation-widget cleanup is missing" >&2; exit 1;
@@ -106,6 +115,24 @@ grep -q 'setVisibleActive(widget, false, false)' "$ROOT/src/client/java/dev/zazu
 grep -q 'requestViewAfterRefresh' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Category-preserving refresh path is missing" >&2; exit 1;
 }
+grep -q 'refreshCategoryInPlace(state)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Refresh does not reload the active category in place" >&2; exit 1;
+}
+grep -q 'ServerListAccess.reloadCategory(state.client, state.screen' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Category Refresh does not reload servers.dat directly" >&2; exit 1;
+}
+if grep -A20 'private static void refreshCategoryInPlace' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" | grep -q 'invokeNoArg.*refreshServerList'; then
+  echo "Category Refresh still invokes Minecraft's screen-rebuilding refreshServerList" >&2; exit 1;
+fi
+grep -q 'SCREEN_ROUTES.put(categoryScreen, new ScreenRoute(view, hub))' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Separate category-screen route registration is missing" >&2; exit 1;
+}
+grep -q 'returnToCategoryHub(state)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Category-to-hub navigation is missing" >&2; exit 1;
+}
+grep -q 'state.layoutDirty = true' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Live window-resize layout invalidation is missing" >&2; exit 1;
+}
 grep -q 'currentRowControlY' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
   echo "Row controls are not vertically centered on live entries" >&2; exit 1;
 }
@@ -114,6 +141,9 @@ grep -q 'centeredRowLeft' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerMana
 }
 grep -q 'ServerCategoryStore.promoteVerified(sb.endpoint)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
   echo "Unfavourite-to-Servers promotion rule is missing" >&2; exit 1;
+}
+grep -q 'setServerName(sb.serverData, updated)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Unfavourite does not clear the live row's stale star" >&2; exit 1;
 }
 grep -q 'returningAfterFailure' "$ROOT/src/client/java/dev/zazuzin/zst/AutoJoinEntrypoint.java" || {
   echo "Auto Join cancel/failure distinction is missing" >&2; exit 1;
@@ -158,8 +188,8 @@ grep -q 'WhitelistAutoDeleteEntrypoint.noteAttempt(buttons.endpoint)' "$ROOT/src
   echo "Manual row-click whitelist attempt capture is missing" >&2; exit 1;
 }
 
-# v0.3.50 Finder/provider/supplementary-probe guards. The UI repair above must remain intact while
-# discovery can fail over independently of BreakBlocks.
+# Finder provider and supplementary-probe guards. Discovery must fail over
+# independently of BreakBlocks without affecting the Multiplayer interface.
 grep -q 'api.cornbread2100.com/v1/servers/random' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
   echo "Cornbread provider endpoint is missing" >&2; exit 1;
 }
@@ -178,8 +208,8 @@ grep -q 'Source: " + r.source()' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFi
 grep -q 'BREAKBLOCKS_AGE_OPTIONS = {1, 7, 14, 21, 30}' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
   echo "BreakBlocks age choices are missing or incorrect" >&2; exit 1;
 }
-grep -q 'breakBlocksMaxAgeDays = 30' "$ROOT/src/client/java/dev/zazuzin/zst/ToolState.java" || {
-  echo "BreakBlocks default age is not 30 days" >&2; exit 1;
+grep -q 'breakBlocksMaxAgeDays = 7' "$ROOT/src/client/java/dev/zazuzin/zst/ToolState.java" || {
+  echo "BreakBlocks default age is not 7 days" >&2; exit 1;
 }
 grep -q 'int page = requestNumber + 1' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
   echo "BreakBlocks pagination is not 1-based" >&2; exit 1;
@@ -199,11 +229,26 @@ grep -q 'VanillaStatusProbe.probe(s.client, s.screen, endpoints' "$ROOT/src/clie
 grep -q 'VanillaStatusProbe.probeOne' "$ROOT/src/client/java/dev/zazuzin/zst/FinderLatencyOverlay.java" || {
   echo "Supplementary row latency probing is missing" >&2; exit 1;
 }
-grep -q '| VERIFIED' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
+grep -q '? "UNVERIFIED" : "VERIFIED"' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
   echo "Double-verified Finder results are not labelled VERIFIED" >&2; exit 1;
 }
-grep -q 'MAX_IN_FLIGHT = 4' "$ROOT/src/client/java/dev/zazuzin/zst/VanillaStatusProbe.java" || {
+grep -q 'MAX_IN_FLIGHT = 20' "$ROOT/src/client/java/dev/zazuzin/zst/VanillaStatusProbe.java" || {
   echo "Finder status-client concurrency cap is missing" >&2; exit 1;
+}
+grep -q 'CONNECT_TIMEOUT_MS = 10_000' "$ROOT/src/client/java/dev/zazuzin/zst/VanillaStatusProbe.java" || {
+  echo "Finder connection timeout is incorrect" >&2; exit 1;
+}
+grep -q 'READ_TIMEOUT_MS = 5_000' "$ROOT/src/client/java/dev/zazuzin/zst/VanillaStatusProbe.java" || {
+  echo "Finder status-response timeout is incorrect" >&2; exit 1;
+}
+grep -q 'visibleAndContains(state.deleteAllButton, x, y)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Bulk-delete mouse interception is missing" >&2; exit 1;
+}
+grep -q 'Search Mode:' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
+  echo "Finder search-mode control is missing" >&2; exit 1;
+}
+grep -q 'Quick Search accepted' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
+  echo "Finder Quick Search path is missing" >&2; exit 1;
 }
 grep -q 'new ThreadPoolExecutor' "$ROOT/src/client/java/dev/zazuzin/zst/VanillaStatusProbe.java" || {
   echo "Bounded Java status executor is missing" >&2; exit 1;
@@ -224,7 +269,7 @@ grep -q 'breakBlocksProbeAttempts' "$ROOT/src/client/java/dev/zazuzin/zst/Server
   echo "BreakBlocks probe diagnostics are missing" >&2; exit 1;
 }
 
-# v0.3.55 whitelist deletion must remove the live Multiplayer ServerList before
+# Whitelist deletion must remove the live Multiplayer ServerList before
 # returning to the Servers tab, otherwise that stale screen can resurrect the row.
 grep -q 'removeFromScreenServerList' "$ROOT/src/client/java/dev/zazuzin/zst/ServerListAccess.java" || {
   echo "Live Multiplayer ServerList whitelist deletion is missing" >&2; exit 1;
@@ -242,7 +287,7 @@ grep -q 'defaultPortIdentity' "$ROOT/src/client/java/dev/zazuzin/zst/ServerListA
   echo "Whitelist deletion does not treat host and host:25565 as the same endpoint" >&2; exit 1;
 }
 
-# v0.3.55 Recent Servers history guards.
+# Recent Servers history guards.
 grep -q 'enum Tab { FAVOURITES, SERVERS, SCANNED, RECENT }' "$ROOT/src/client/java/dev/zazuzin/zst/ServerCategoryStore.java" || {
   echo "Recent Servers category is missing" >&2; exit 1;
 }
@@ -259,7 +304,7 @@ grep -q 'recentEndpoints()' "$ROOT/src/client/java/dev/zazuzin/zst/ServerListAcc
   echo "Recent Servers are not rebuilt in newest-first order" >&2; exit 1;
 }
 
-# v0.3.49 Auto Add is owned by the Finder itself. It must not depend on a separate
+# Auto Add is owned by the Finder itself. It must not depend on a separate
 # screen tick entrypoint, and completed batches must explicitly schedule the next search.
 if [[ -f "$ROOT/src/client/java/dev/zazuzin/zst/ContinuousAutoAddEntrypoint.java" ]]; then
   echo "Legacy tick-based ContinuousAutoAddEntrypoint is still present" >&2; exit 1;
@@ -286,7 +331,7 @@ grep -q 's.autoAddScheduleToken != token' "$ROOT/src/client/java/dev/zazuzin/zst
   echo "Auto Add stale-schedule cancellation guard is missing" >&2; exit 1;
 }
 
-# v0.3.52 restores strict Finder admission and cleans stale Scanned Servers.
+# Strict Finder admission and stale Scanned Servers cleanup guards.
 grep -q 'SCANNED_FAILURES_BEFORE_DELETE = 3' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Scanned Servers three-strike health cleanup is missing" >&2; exit 1;
 }
@@ -300,7 +345,7 @@ grep -q 'stillEligibleForScannedHealthDelete' "$ROOT/src/client/java/dev/zazuzin
   echo "Favourite/category safety recheck is missing from scanned health cleanup" >&2; exit 1;
 }
 
-# v0.3.51 exposes a separately scoped, confirmation-protected bulk delete in
+# Scanned Servers exposes a separately scoped, confirmation-protected bulk delete
 # Scanned Servers while preserving favourites and established Servers entries.
 grep -q 'Delete All Scanned' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
   echo "Scanned Servers bulk-delete control is missing" >&2; exit 1;
@@ -314,8 +359,11 @@ grep -q 'if (isFavourite(server)) continue' "$ROOT/src/client/java/dev/zazuzin/z
 grep -q 'Confirm Delete Scanned' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
   echo "Scanned bulk-delete confirmation is missing" >&2; exit 1;
 }
+grep -q 'Delete All Servers' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Servers bulk-delete label is unclear" >&2; exit 1;
+}
 
-# v0.3.53 Auto Join authentication rate-limit cooldown guards.
+# Auto Join authentication rate-limit cooldown guards.
 grep -q 'DEFAULT_RATE_LIMIT_COOLDOWN_MS = 10_000L' "$ROOT/src/client/java/dev/zazuzin/zst/AutoJoinEntrypoint.java" || {
   echo "Auto Join default rate-limit cooldown is not 10 seconds" >&2; exit 1;
 }
@@ -332,7 +380,7 @@ grep -q 'ratelimiter' "$ROOT/src/client/java/dev/zazuzin/zst/DisconnectReason.ja
   echo "RateLimiter disconnect detection is missing" >&2; exit 1;
 }
 
-# v0.3.56 pause-menu favourite control guards.
+# Pause-menu favourite control guards.
 grep -q '☆ Favourite Server' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Pause-menu Favourite Server button is missing" >&2; exit 1;
 }
@@ -349,7 +397,7 @@ grep -q 'ServerTabsEntrypoint::onPlayDisconnect' "$ROOT/src/client/java/dev/zazu
   echo "Connected-server favourite state is not cleared on disconnect" >&2; exit 1;
 }
 
-# v0.3.57 favourites are a hard boundary for all automatic removal paths, and
+# Favourites are a hard boundary for all automatic removal paths, and
 # category Auto Join is available in Servers/Scanned but never Favourites.
 grep -q 'Kept favourite after whitelist rejection' "$ROOT/src/client/java/dev/zazuzin/zst/WhitelistAutoDeleteEntrypoint.java" || {
   echo "Whitelist favourite protection is missing" >&2; exit 1;
@@ -370,23 +418,17 @@ grep -q 'targetCategory' "$ROOT/src/client/java/dev/zazuzin/zst/AutoJoinEntrypoi
   echo "Auto Join category persistence is missing" >&2; exit 1;
 }
 
-# v0.3.58 stores favourites by endpoint, exposes Minecraft's server editor in
-# the pause menu, and defers health traffic while native status rows populate.
+# Favourites are stored by endpoint and health traffic is deferred while native
+# status rows populate. The unverified pause-menu editor must not be exposed.
 grep -q 'p.setProperty("favourites"' "$ROOT/src/client/java/dev/zazuzin/zst/ServerCategoryStore.java" || {
   echo "Rename-safe favourite persistence is missing" >&2; exit 1;
 }
 grep -q 'ServerCategoryStore.isFavourite(endpoint)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerListAccess.java" || {
   echo "Category filtering does not use persisted favourite identity" >&2; exit 1;
 }
-grep -q 'Edit Server Info' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
-  echo "Pause-menu Edit Server Info button is missing" >&2; exit 1;
-}
-grep -q 'net.minecraft.client.gui.screens.EditServerScreen' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
-  echo "Pause-menu editor is not routed through Minecraft's server editor" >&2; exit 1;
-}
-grep -q 'ServerCategoryStore.moveEndpoint(originalEndpoint, updatedEndpoint)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
-  echo "Pause-menu address edits do not migrate category metadata" >&2; exit 1;
-}
+if grep -q 'Edit Server Info' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java"; then
+  echo "Unverified pause-menu Edit Server Info control is still exposed" >&2; exit 1;
+fi
 grep -q 'SCANNED_HEALTH_INITIAL_DELAY_MS = 20_000L' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Initial native status-ping head start is missing" >&2; exit 1;
 }
@@ -394,12 +436,19 @@ grep -q 'cachedLatencyMillis(endpoint)' "$ROOT/src/client/java/dev/zazuzin/zst/S
   echo "Recent successful status cache is not reused by health cleanup" >&2; exit 1;
 }
 
-# v0.3.60 deletion recovery and persisted health state.
+# Deletion recovery and persisted health-state guards.
 grep -q 'zazus-server-tool-backups' "$ROOT/src/client/java/dev/zazuzin/zst/ServerCategoryStore.java" || { echo "Automatic servers.dat backups missing" >&2; exit 1; }
 grep -q 'Undo Last Delete' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || { echo "Undo Last Delete control missing" >&2; exit 1; }
 grep -q 'recordHealthFailure' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || { echo "Persistent health failure recording missing" >&2; exit 1; }
-grep -q 'resetHealth' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || { echo "Health reset control missing" >&2; exit 1; }
-grep -q 'visibleAndContains(buttons.health' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || { echo "Health click is not routed through the Multiplayer interceptor" >&2; exit 1; }
+if grep -qE 'buttons\.health|sb\.health|healthLabel\(' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java"; then
+  echo "Removed per-server Health controls are still present" >&2; exit 1;
+fi
+grep -q 'ScreenRoute route = SCREEN_ROUTES.get(screen)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Category route is not persistent across repeated screen initialisation" >&2; exit 1;
+}
+grep -q 'returnToCategoryHub(state)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Category Back routing is missing" >&2; exit 1;
+}
 grep -q 'visibleAndContains(state.undoButton' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || { echo "Undo click is not routed through the Multiplayer interceptor" >&2; exit 1; }
 if grep -qE 'Protected Server|toggleProtected|P✓|isProtectedData' "$ROOT/src/client/java/dev/zazuzin/zst/"*.java; then echo "Removed protection feature is still present" >&2; exit 1; fi
 
@@ -587,7 +636,7 @@ public final class ProviderParsingTest {
         if (provider.headers().firstValue("Authorization").isPresent())
             throw new AssertionError("No-key provider unexpectedly received Authorization header");
         String ua = provider.headers().firstValue("User-Agent").orElse("");
-        if (!"ZazusServerSeeker/0.3.64".equals(ua))
+        if (!"ZazusServerSeeker/0.4.0-beta.1".equals(ua))
             throw new AssertionError("Provider User-Agent version mismatch: " + ua);
 
         if (!"1.2.3.4".equals(ServerFinderClient.intToIpv4(16909060L)))
@@ -632,25 +681,25 @@ public final class VanillaStatusProbeTest {
             try (ServerSocket unused = new ServerSocket(0)) { deadPort = unused.getLocalPort(); }
 
             List<String> endpoints = new ArrayList<>();
-            for (int i = 1; i <= 8; i++) endpoints.add("127.0.0." + i + ":" + server.port());
+            for (int i = 1; i <= 20; i++) endpoints.add("127.0.0." + i + ":" + server.port());
             endpoints.add("127.0.0.1:" + deadPort);
             endpoints.add("no-such-zazu-host.invalid:25565");
 
             var results = VanillaStatusProbe.probe(new Client(), new Object(), endpoints, () -> true)
                     .get(12, TimeUnit.SECONDS);
             if (results.size() != endpoints.size()) throw new AssertionError("Unexpected status result count: " + results);
-            for (int i = 0; i < 8; i++) {
+            for (int i = 0; i < 20; i++) {
                 var live = results.get(i);
                 if (!live.replied() || live.protocol() != 776 || !"26.2 Test".equals(live.version()) || live.latencyMs() < 1L)
                     throw new AssertionError("Java status reply was not captured: " + live);
             }
-            if (results.get(8).failure() != VanillaStatusProbe.Failure.UNREACHABLE)
-                throw new AssertionError("Unreachable classification failed: " + results.get(8));
-            if (results.get(9).failure() != VanillaStatusProbe.Failure.DNS)
-                throw new AssertionError("DNS classification failed: " + results.get(9));
-            if (server.maxActive() > 4)
-                throw new AssertionError("Status client exceeded four in-flight requests: " + server.maxActive());
-            if (server.maxActive() < 2)
+            if (results.get(20).failure() != VanillaStatusProbe.Failure.UNREACHABLE)
+                throw new AssertionError("Unreachable classification failed: " + results.get(20));
+            if (results.get(21).failure() != VanillaStatusProbe.Failure.DNS)
+                throw new AssertionError("DNS classification failed: " + results.get(21));
+            if (server.maxActive() > 20)
+                throw new AssertionError("Status client exceeded twenty in-flight requests: " + server.maxActive());
+            if (server.maxActive() < 16)
                 throw new AssertionError("Status client did not exercise concurrent requests");
             if (VanillaStatusProbe.currentProtocol() != 776)
                 throw new AssertionError("Minecraft current protocol reflection failed");
@@ -885,6 +934,18 @@ public final class RuntimeRegressionTest {
         if (!ServerCategoryStore.undoLastDelete(null)) throw new AssertionError("Undo Last Delete failed");
         if (ServerList.persistedVisible.stream().noneMatch(s -> s.ip.equals("undo.example:25565")))
             throw new AssertionError("Undo did not restore deleted server");
+
+        var batch = List.of(
+                new ServerCategoryStore.DeletedServer("Batch One", "batch-one.example:25565", false, true),
+                new ServerCategoryStore.DeletedServer("Batch Two", "batch-two.example:25565", false, false));
+        ServerCategoryStore.recordUndoBatch(batch);
+        if (!ServerCategoryStore.undoLastDelete(null)) throw new AssertionError("Bulk Undo Last Delete failed");
+        if (ServerList.persistedVisible.stream().noneMatch(s -> s.ip.equals("batch-one.example:25565"))
+                || ServerList.persistedVisible.stream().noneMatch(s -> s.ip.equals("batch-two.example:25565")))
+            throw new AssertionError("Bulk undo did not restore every deleted server");
+        if (!ServerCategoryStore.isScanned("batch-one.example:25565")
+                || ServerCategoryStore.isScanned("batch-two.example:25565"))
+            throw new AssertionError("Bulk undo did not restore server categories");
 
         if (ServerCategoryStore.recordHealthFailure("health.example:25565") != 1) throw new AssertionError("Health failure not recorded");
         ServerCategoryStore.recordHealthSuccess("health.example:25565");

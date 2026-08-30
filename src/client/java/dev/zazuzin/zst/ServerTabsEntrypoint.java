@@ -8,7 +8,7 @@ import java.util.concurrent.*;
 import java.util.function.Consumer;
 
 /**
- * v0.3.41 Multiplayer workflow.
+ * Multiplayer category workflow.
  *
  * Multiplayer first opens a lightweight category hub. The vanilla saved-server
  * list is only shown after choosing Favourites / Servers / Scanned Servers.
@@ -24,9 +24,9 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
     private static final int SCANNED_FAILURES_BEFORE_DELETE = 3;
 
     private static final Map<Object, State> STATES = Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Map<Object, ScreenRoute> SCREEN_ROUTES = Collections.synchronizedMap(new WeakHashMap<>());
     private static final Map<String, Integer> SCANNED_HEALTH_FAILURES = new ConcurrentHashMap<>();
     private static final Map<Object, Object> PAUSE_FAVOURITE_BUTTONS = Collections.synchronizedMap(new WeakHashMap<>());
-    private static final Map<Object, Object> PAUSE_EDIT_BUTTONS = Collections.synchronizedMap(new WeakHashMap<>());
     /** Every button created by this entrypoint. Keeping weak identities lets us
      * hide/remove stale controls after JoinMultiplayerScreen re-initialises the
      * same screen object, preventing ghost Back/Refresh-era buttons. */
@@ -51,12 +51,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         try {
             registerScreenWatcher();
             registerPlayWatchers();
-            System.out.println("[Zazu's Server Seeker] 0.3.41 Multiplayer category/options hub enabled.");
-            System.out.println("[Zazu's Server Seeker] 0.3.52 Scanned Servers health cleanup enabled (3 failed status checks).");
-            System.out.println("[Zazu's Server Seeker] 0.3.54 Recent Servers history enabled (last 5 stable joins).");
-            System.out.println("[Zazu's Server Seeker] 0.3.55 whitelist deletion now removes the live Servers-tab source before returning.");
-            System.out.println("[Zazu's Server Seeker] 0.3.56 pause-menu Favourite Server control enabled.");
-            System.out.println("[Zazu's Server Seeker] 0.3.57 Auto Join enabled for Servers and Scanned Servers; favourites remain excluded.");
+            System.out.println("[Zazu's Server Seeker] Multiplayer categories, scanned-server health checks, Recent Servers and Auto Join enabled.");
         } catch (Throwable t) {
             System.err.println("[Zazu's Server Seeker] Could not enable Multiplayer category hub: " + root(t));
         }
@@ -110,8 +105,6 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         try {
             Object previous = PAUSE_FAVOURITE_BUTTONS.remove(screen);
             if (previous != null) Reflection.removeWidget(screen, previous);
-            Object previousEdit = PAUSE_EDIT_BUTTONS.remove(screen);
-            if (previousEdit != null) Reflection.removeWidget(screen, previousEdit);
 
             String endpoint = currentConnectedEndpoint(client);
             if (endpoint.isBlank()) return;
@@ -132,11 +125,6 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
             holder[0] = button;
             PAUSE_FAVOURITE_BUTTONS.put(screen, button);
             Reflection.addWidget(screen, button);
-
-            Object edit = makeButton("Edit Server Info", 6, 30, 160, 20,
-                    ignored -> openPauseServerEditor(client, screen, endpoint, displayName));
-            PAUSE_EDIT_BUTTONS.put(screen, edit);
-            Reflection.addWidget(screen, edit);
         } catch (Throwable t) {
             System.err.println("[Zazu's Server Seeker] Could not add pause-menu Favourite Server button: " + root(t));
         }
@@ -144,77 +132,6 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
 
     private static String pauseFavouriteLabel(boolean favourite) {
         return favourite ? "★ Unfavourite Server" : "☆ Favourite Server";
-    }
-
-    private static void openPauseServerEditor(Object client, Object pauseScreen, String endpoint, String suggestedName) {
-        try {
-            Object list = ServerFinderClient.ServerListBridge.createLoadedList(client);
-            Object server = ServerFinderClient.ServerListBridge.findServer(list, endpoint);
-            if (server == null) {
-                String name = suggestedName == null || suggestedName.isBlank() ? "Zazu " + endpoint : suggestedName;
-                server = ServerFinderClient.ServerListBridge.createServerData(name, endpoint);
-                ServerFinderClient.ServerListBridge.addServerData(list, server);
-                ServerFinderClient.ServerListBridge.save(list);
-                ServerCategoryStore.syncNew(List.of(endpoint));
-            }
-
-            final Object editedServer = server;
-            final String originalEndpoint = ToolState.normalize(endpoint);
-            final boolean favourite = MultiplayerManagementEntrypoint.isFavouriteEndpoint(client, originalEndpoint);
-            Class<?> editType = pauseServerEditorType();
-            Object editScreen = null;
-            for (Constructor<?> constructor : editType.getDeclaredConstructors()) {
-                Class<?>[] types = constructor.getParameterTypes();
-                if (types.length != 3 || !types[0].isInstance(pauseScreen) || !types[2].isInstance(editedServer)
-                        || !types[1].isInterface()) continue;
-                Object callback = Proxy.newProxyInstance(types[1].getClassLoader(), new Class<?>[]{types[1]}, (proxy, method, args) -> {
-                    if (method.getDeclaringClass() == Object.class) return RuntimeAccess.objectMethod(proxy, method, args);
-                    boolean accepted = args != null && args.length > 0 && Boolean.TRUE.equals(args[0]);
-                    if (accepted) {
-                        String updatedEndpoint = ToolState.normalize(
-                                ServerFinderClient.ServerListBridge.serverEndpoint(editedServer));
-                        if (updatedEndpoint.isBlank()) {
-                            updatedEndpoint = originalEndpoint;
-                            ServerFinderClient.ServerListBridge.setServerEndpoint(editedServer, originalEndpoint);
-                        }
-                        String name = ServerFinderClient.ServerListBridge.serverName(editedServer);
-                        if (favourite && !name.startsWith(MultiplayerManagementEntrypoint.FAV_PREFIX))
-                            ServerFinderClient.ServerListBridge.setServerName(editedServer, MultiplayerManagementEntrypoint.FAV_PREFIX + name);
-                        ServerFinderClient.ServerListBridge.save(list);
-                        ServerCategoryStore.moveEndpoint(originalEndpoint, updatedEndpoint);
-                        ServerCategoryStore.setFavourite(updatedEndpoint, favourite);
-                        System.out.println("[Zazu's Server Seeker] Updated connected server info: "
-                                + originalEndpoint + " -> " + updatedEndpoint);
-                    }
-                    ScreenCompat.setScreen(client, pauseScreen);
-                    return null;
-                });
-                try {
-                    constructor.setAccessible(true);
-                    editScreen = constructor.newInstance(pauseScreen, callback, editedServer);
-                    break;
-                } catch (Throwable ignored) {}
-            }
-            if (editScreen == null) throw new IllegalStateException("Minecraft EditServerScreen constructor was not compatible.");
-            ScreenCompat.setScreen(client, editScreen);
-        } catch (Throwable t) {
-            System.err.println("[Zazu's Server Seeker] Could not open pause-menu server editor: " + root(t));
-        }
-    }
-
-    private static Class<?> pauseServerEditorType() throws ClassNotFoundException {
-        ClassNotFoundException failure = null;
-        for (String name : new String[]{
-                "net.minecraft.client.gui.screens.EditServerScreen",
-                "net.minecraft.client.gui.screens.multiplayer.EditServerScreen"
-        }) {
-            try {
-                return Class.forName(name);
-            } catch (ClassNotFoundException missing) {
-                failure = missing;
-            }
-        }
-        throw failure == null ? new ClassNotFoundException("EditServerScreen") : failure;
     }
 
     static String currentConnectedEndpoint(Object client) {
@@ -268,11 +185,17 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         // widgets by the new State.
         State previous = STATES.get(screen);
         View previousView = previous == null ? View.HUB : previous.view;
-        View requestedView = consumePendingViewAfterRefresh();
+        // A screen can be initialised repeatedly after resize, refresh or return
+        // from a child screen. Keep its route for the screen object's lifetime;
+        // consuming it once made later inits fall back to the category hub.
+        ScreenRoute route = SCREEN_ROUTES.get(screen);
+        View requestedView = route == null ? consumePendingViewAfterRefresh() : route.view;
+        Object hubScreen = route != null && route.hubScreen != null
+                ? route.hubScreen : previous != null ? previous.hubScreen : screen;
         if (previous != null) detachCustomWidgets(previous);
         purgeStaleOwnedWidgets(screen);
 
-        State state = new State(client, screen, width, height);
+        State state = new State(client, screen, hubScreen, width, height);
         STATES.put(screen, state);
 
         state.baseWidgets.addAll(widgets(screen));
@@ -283,6 +206,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         captureOriginalBounds(state, MultiplayerManagementEntrypoint.deleteNonFavouritesButton(screen));
         captureFullRows(state, true);
         createNavigationControls(state);
+        if (route != null && route.view != View.HUB) removeNativeRefreshControls(state);
         registerControlMouseInterceptor(state);
 
         // While Auto Join is returning after a failure, resume the category in
@@ -313,12 +237,15 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
 
     static void requestViewAfterRefresh(Object screen, ServerCategoryStore.Tab tab) {
         if (tab == null) { preserveCurrentViewAfterRefresh(screen); return; }
-        requestViewAfterRefresh(switch (tab) {
+        View view = switch (tab) {
             case FAVOURITES -> View.FAVOURITES;
             case SERVERS -> View.SERVERS;
             case SCANNED -> View.SCANNED;
             case RECENT -> View.RECENT;
-        });
+        };
+        State state = STATES.get(screen);
+        if (state != null) state.requestedReplacementView = view;
+        else requestViewAfterRefresh(view);
     }
 
     private static void requestViewAfterRefresh(View view) {
@@ -335,11 +262,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         return view != null && age >= 0L && age <= 5_000L ? view : null;
     }
 
-    /**
-     * Creates only Zazu-owned controls. Minecraft's native Back and Refresh
-     * buttons are left completely untouched and keep their original callbacks,
-     * positions and lifecycle.
-     */
+    /** Creates the category hub and category-owned navigation controls. */
     private static void createNavigationControls(State state) throws Exception {
         int buttonWidth = Math.min(300, Math.max(220, state.width / 3));
         int x = (state.width - buttonWidth) / 2;
@@ -347,13 +270,13 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         int startY = Math.max(52, state.height / 2 - 62);
 
         state.favouritesButton = makeButton("Favourites", x, startY, buttonWidth, 20,
-                b -> showCategory(state, ServerCategoryStore.Tab.FAVOURITES));
+                b -> openCategoryScreen(state, ServerCategoryStore.Tab.FAVOURITES));
         state.serversButton = makeButton("Servers", x, startY + gap, buttonWidth, 20,
-                b -> showCategory(state, ServerCategoryStore.Tab.SERVERS));
+                b -> openCategoryScreen(state, ServerCategoryStore.Tab.SERVERS));
         state.scannedButton = makeButton("Scanned Servers", x, startY + gap * 2, buttonWidth, 20,
-                b -> showCategory(state, ServerCategoryStore.Tab.SCANNED));
+                b -> openCategoryScreen(state, ServerCategoryStore.Tab.SCANNED));
         state.recentButton = makeButton("Recent Servers", x, startY + gap * 3, buttonWidth, 20,
-                b -> showCategory(state, ServerCategoryStore.Tab.RECENT));
+                b -> openCategoryScreen(state, ServerCategoryStore.Tab.RECENT));
 
         Object tool = MultiplayerManagementEntrypoint.finderButton(state.screen);
         Bounds toolBounds = originalBounds(state, tool);
@@ -364,16 +287,20 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         int categoriesY = Math.max(6, toolY - buttonH - 4);
         state.categoriesButton = makeButton("Categories", toolX, categoriesY, leftWidth, buttonH, b -> {
             if (coreAutoJoinEnabled()) stopCoreAutoJoin(true);
-            showHub(state);
+            returnToCategoryHub(state);
         });
+        state.categoryRefreshButton = makeButton("Refresh", toolX,
+                Math.max(6, categoriesY - buttonH - 4), leftWidth, buttonH,
+                b -> refreshCategoryInPlace(state));
 
         rememberOwned(state.favouritesButton, state.serversButton, state.scannedButton, state.recentButton,
-                state.categoriesButton);
+                state.categoriesButton, state.categoryRefreshButton);
         Reflection.addWidget(state.screen, state.favouritesButton);
         Reflection.addWidget(state.screen, state.serversButton);
         Reflection.addWidget(state.screen, state.scannedButton);
         Reflection.addWidget(state.screen, state.recentButton);
         Reflection.addWidget(state.screen, state.categoriesButton);
+        Reflection.addWidget(state.screen, state.categoryRefreshButton);
     }
 
     private static void registerControlMouseInterceptor(State state) throws Exception {
@@ -407,21 +334,10 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
             // mouseClicked(MouseButtonEvent, boolean) method first. Crucially, we
             // cancel vanilla processing only when the button actually consumed the
             // click; a failed reflective dispatch must never make a button dead.
-            for (Object widget : Arrays.asList(state.autoJoinButton, state.categoriesButton,
+            for (Object widget : Arrays.asList(state.autoJoinButton, state.categoryRefreshButton, state.categoriesButton,
                     MultiplayerManagementEntrypoint.finderButton(state.screen))) {
                 if (visibleActiveContains(widget, x, y) && dispatchWidgetClick(widget, mouse)) {
                     return Boolean.FALSE;
-                }
-            }
-
-            // Keep Minecraft's real Refresh button. Before vanilla handles the
-            // click, remember the active category so its screen re-init returns
-            // to this same list instead of the category hub.
-            for (Object widget : Reflection.screenListElements(state.screen)) {
-                if (!visibleActiveContains(widget, x, y)) continue;
-                if (widgetLabel(widget).trim().equals("Refresh")) {
-                    requestViewAfterRefresh(state.view);
-                    return Boolean.TRUE;
                 }
             }
 
@@ -438,6 +354,40 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
             return Boolean.TRUE;
         });
         RuntimeAccess.registerEvent(event, listener);
+    }
+
+    private static void removeNativeRefreshControls(State state) {
+        int removed = 0;
+        for (Object widget : new ArrayList<>(Reflection.screenListElements(state.screen))) {
+            if (!isNativeRefreshWidget(state, widget)) continue;
+            setVisibleActive(widget, false, false);
+            Reflection.removeWidget(state.screen, widget);
+            state.baseWidgets.removeIf(candidate -> candidate == widget);
+            state.originalBounds.remove(widget);
+            removed++;
+        }
+        System.out.println("[Zazu's Server Seeker] Removed " + removed
+                + " native Refresh control(s); left-rail refresh enabled.");
+    }
+
+    private static void suppressNativeRefreshControls(State state) {
+        for (Object widget : new ArrayList<>(Reflection.screenListElements(state.screen))) {
+            if (!isNativeRefreshWidget(state, widget)) continue;
+            setVisibleActive(widget, false, false);
+            Reflection.removeWidget(state.screen, widget);
+            state.baseWidgets.removeIf(candidate -> candidate == widget);
+            state.originalBounds.remove(widget);
+        }
+    }
+
+    private static boolean isNativeRefreshWidget(State state, Object widget) {
+        if (widget == null || widget == state.categoryRefreshButton) return false;
+        if (widgetLabel(widget).trim().equals("Refresh")) return true;
+        Object message = RuntimeAccess.invoke(widget, "getMessage");
+        if (message == null) message = RuntimeAccess.invoke(widget, "getText");
+        if (message == null) message = RuntimeAccess.field(widget, "message");
+        String raw = String.valueOf(message).toLowerCase(Locale.ROOT);
+        return raw.contains("selectserver.refresh") || raw.contains("select_server.refresh");
     }
 
     private static double mouseCoordinate(Object event, String axis) {
@@ -488,6 +438,69 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         } else {
             showCategory(state, tabForView(state.view));
         }
+    }
+
+    static boolean refreshCurrentScreen(Object screen) {
+        State state = STATES.get(screen);
+        if (state == null || state.view == View.HUB) return false;
+        refreshCategoryInPlace(state);
+        return true;
+    }
+
+    private static void openCategoryScreen(State state, ServerCategoryStore.Tab tab) {
+        if (state == null || tab == null) return;
+        openCategoryScreen(state, switch (tab) {
+            case FAVOURITES -> View.FAVOURITES;
+            case SERVERS -> View.SERVERS;
+            case SCANNED -> View.SCANNED;
+            case RECENT -> View.RECENT;
+        });
+    }
+
+    private static void openCategoryScreen(State state, View view) {
+        try {
+            Object hub = state.view == View.HUB ? state.screen : state.hubScreen;
+            Object categoryScreen = newMultiplayerScreen(state.screen.getClass(), hub);
+            SCREEN_ROUTES.put(categoryScreen, new ScreenRoute(view, hub));
+            ScreenCompat.setScreen(state.client, categoryScreen);
+        } catch (Throwable t) {
+            logOnce(state, "Could not open separate category screen", t);
+        }
+    }
+
+    private static void refreshCategoryInPlace(State state) {
+        if (state == null || state.view == View.HUB) return;
+        View view = state.requestedReplacementView == null ? state.view : state.requestedReplacementView;
+        state.requestedReplacementView = null;
+        try {
+            // Reload servers.dat directly and update the existing selection
+            // widget. Never call JoinMultiplayerScreen.refreshServerList(): it
+            // reinitialises the screen and recreates vanilla footer controls.
+            ServerListAccess.reloadCategory(state.client, state.screen, tabForView(view));
+            captureFullRows(state, true);
+            showCategory(state, tabForView(view));
+            MultiplayerManagementEntrypoint.rebuildRowButtons(state.screen);
+            state.layoutDirty = true;
+            applyLayout(state);
+        } catch (Throwable t) {
+            logOnce(state, "Could not refresh current category in place", t);
+        }
+    }
+
+    private static void returnToCategoryHub(State state) {
+        if (state == null || state.hubScreen == null) return;
+        try { ScreenCompat.setScreen(state.client, state.hubScreen); }
+        catch (Throwable t) { logOnce(state, "Could not return to category hub", t); }
+    }
+
+    private static Object newMultiplayerScreen(Class<?> type, Object parent) throws Exception {
+        for (Constructor<?> constructor : type.getDeclaredConstructors()) {
+            Class<?>[] parameters = constructor.getParameterTypes();
+            if (parameters.length != 1 || parent == null || !parameters[0].isInstance(parent)) continue;
+            constructor.setAccessible(true);
+            return constructor.newInstance(parent);
+        }
+        throw new NoSuchMethodException("JoinMultiplayerScreen(Screen parent)");
     }
 
     private static void showHub(State state) {
@@ -549,6 +562,14 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         Object client = RuntimeAccess.minecraftInstance();
         Object current = ScreenCompat.currentScreen(client);
         if (current != null && current != state.screen) return;
+
+        int liveWidth = RuntimeAccess.intField(state.screen, "width", state.width);
+        int liveHeight = RuntimeAccess.intField(state.screen, "height", state.height);
+        if (liveWidth > 0 && liveHeight > 0 && (liveWidth != state.width || liveHeight != state.height)) {
+            state.width = liveWidth;
+            state.height = liveHeight;
+            state.layoutDirty = true;
+        }
 
         if (finderOpen(state.screen)) {
             setVisibleActive(state.favouritesButton, false, false);
@@ -760,10 +781,14 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
     private static void applyLayout(State state) {
         if (state == null || finderOpen(state.screen)) return;
 
+        // Minecraft can recreate/update its native footer after AFTER_INIT.
+        // Keep only the working left-rail refresh visible and clickable.
+        if (state.view != View.HUB) suppressNativeRefreshControls(state);
+
         List<Object> live = widgets(state.screen);
         boolean learnedWidgets = live != null && learnBaseWidgets(state, live);
         captureMissingOriginalBounds(state);
-        boolean layoutNeeded = learnedWidgets || state.appliedView != state.view;
+        boolean layoutNeeded = learnedWidgets || state.appliedView != state.view || state.layoutDirty;
 
         Object tool = MultiplayerManagementEntrypoint.finderButton(state.screen);
         Object deleteNonFavourites = MultiplayerManagementEntrypoint.deleteNonFavouritesButton(state.screen);
@@ -783,6 +808,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         setVisibleActive(state.scannedButton, hub, hub);
         setVisibleActive(state.recentButton, hub, hub);
         setVisibleActive(state.categoriesButton, !hub, !hub);
+        setVisibleActive(state.categoryRefreshButton, !hub, !hub);
         setVisibleActive(tool, true, true);
 
         boolean serversView = state.view == View.SERVERS;
@@ -803,15 +829,19 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
             setVisibleActive(state.autoJoinButton, false, false);
         }
 
-        // Only Zazu-owned navigation widgets are cleaned up here. Minecraft's
-        // native footer, including Back and Refresh, is never removed or moved.
+        // Clean up stale Server Seeker navigation widgets after re-init.
         purgeStaleOwnedWidgetsExceptCurrent(state);
 
         if (layoutNeeded) {
             if (hub) layoutHub(state, tool);
             else layoutCategoryControls(state);
         }
+        state.layoutDirty = false;
         state.appliedView = state.view;
+
+        // Run after base-widget discovery and visibility restoration as well.
+        // Vanilla may re-register its footer during the same layout cycle.
+        if (!hub) suppressNativeRefreshControls(state);
     }
 
     private static void setVisibleActive(Object widget, boolean visible, boolean active) {
@@ -837,7 +867,8 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         if (widget == state.listWidget) return true;
 
         String label = widgetLabel(widget).trim();
-        if (label.equals("Delete Non-Favourites") || label.equals("Confirm Delete Non-Favs")
+        if (isNativeRefreshWidget(state, widget) && state.view != View.HUB) return false;
+        if (label.equals("Delete All Servers") || label.equals("Confirm Delete Servers")
                 || label.equals("Delete All Scanned") || label.equals("Confirm Delete Scanned")) {
             return state.view == View.SERVERS || state.view == View.SCANNED;
         }
@@ -865,7 +896,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         if (state == null) return;
         for (Object widget : Arrays.asList(
                 state.favouritesButton, state.serversButton, state.scannedButton, state.recentButton,
-                state.categoriesButton, state.autoJoinButton)) {
+                state.categoriesButton, state.categoryRefreshButton, state.autoJoinButton)) {
             setVisibleActive(widget, false, false);
             Reflection.removeWidget(state.screen, widget);
         }
@@ -941,11 +972,13 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
     private static void layoutCategoryControls(State state) {
         int margin = 6;
         Object tool = MultiplayerManagementEntrypoint.finderButton(state.screen);
+        Object bulkDelete = MultiplayerManagementEntrypoint.deleteNonFavouritesButton(state.screen);
+        Object undoDelete = MultiplayerManagementEntrypoint.undoLastDeleteButton(state.screen);
 
         // Keep Zazu-specific navigation in a dedicated left-side rail beside the
         // centred vanilla server rows. The old bottom-left placement occupied the
         // same Y coordinates as Join/Edit/Delete/Refresh/Back and was the source
-        // of the overlapping buttons visible in 0.3.34/0.3.35.
+        // of the overlapping controls in the previous footer layout.
         int listTop = widgetInt(state.listWidget, "getY", "y", 32);
         int listHeight = widgetInt(state.listWidget, "getHeight", "height", Math.max(120, state.height - 96));
         int listBottom = Math.min(state.height - 36, listTop + Math.max(80, listHeight));
@@ -958,15 +991,29 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         if (availableLeft < 96) railW = Math.min(140, Math.max(96, state.width / 4));
 
         int toolH = 20;
+        if (bulkDelete != null) setBounds(bulkDelete, railX, listTop, railW, toolH);
+        if (undoDelete != null) setBounds(undoDelete, railX, listTop + toolH + 4, railW, toolH);
         int finderY = Math.max(listTop + 48, listBottom - toolH);
         int categoriesY = Math.max(listTop + 24, finderY - toolH - 4);
         if (tool != null) setBounds(tool, railX, finderY, railW, toolH);
         setBounds(state.categoriesButton, railX, categoriesY, railW, toolH);
 
+        // Use the vanilla four-button footer geometry (Edit, Delete, Refresh,
+        // Back) while retaining Server Seeker's proven in-place callback.
+        int footerGap = 4;
+        // Minecraft compresses this row on narrow GUIs. At Steam Deck's
+        // 640-wide scaled GUI the native slots are 70px, not desktop's 100px.
+        int footerWidth = Math.min(100, Math.max(70, (state.width - 360) / 4));
+        int footerTotal = footerWidth * 4 + footerGap * 3;
+        int footerStartX = Math.max(margin, (state.width - footerTotal) / 2);
+        int refreshX = footerStartX + 2 * (footerWidth + footerGap);
+        setBounds(state.categoryRefreshButton, refreshX, Math.max(6, state.height - 28), footerWidth, toolH);
+
         if (state.autoJoinButton != null) {
             int autoY = Math.max(listTop, categoriesY - toolH - 4);
             setBounds(state.autoJoinButton, railX, autoY, railW, toolH);
         }
+
     }
 
 
@@ -1111,7 +1158,8 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
 
     private static boolean isCustom(State state, Object widget) {
         return widget == state.favouritesButton || widget == state.serversButton || widget == state.scannedButton
-                || widget == state.recentButton || widget == state.categoriesButton || widget == state.autoJoinButton;
+                || widget == state.recentButton || widget == state.categoriesButton || widget == state.autoJoinButton
+                || widget == state.categoryRefreshButton;
     }
 
     private static ServerCategoryStore.Tab tabForView(View view) {
@@ -1282,27 +1330,32 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
     private enum View { HUB, FAVOURITES, SERVERS, SCANNED, RECENT }
 
     private record Bounds(int x, int y, int width, int height) {}
+    private record ScreenRoute(View view, Object hubScreen) {}
 
     private static final class State {
-        final Object client, screen;
-        final int width, height;
+        final Object client, screen, hubScreen;
+        int width, height;
         final List<Object> baseWidgets = new ArrayList<>();
         final Map<Object, Bounds> originalBounds = new IdentityHashMap<>();
         Object listWidget;
-        Object favouritesButton, serversButton, scannedButton, recentButton, categoriesButton, autoJoinButton;
+        Object favouritesButton, serversButton, scannedButton, recentButton, categoriesButton, categoryRefreshButton;
+        Object autoJoinButton;
         List<ServerListAccess.Saved> saved = List.of();
         String lastSignature = "";
         View view = View.HUB;
         View appliedView;
+        View requestedReplacementView;
         boolean loggedFailure;
+        boolean layoutDirty;
         boolean scannedHealthProbeInFlight;
         int scannedHealthCursor;
         long nextScannedHealthProbeAt;
         long scannedHealthGeneration;
 
-        State(Object client, Object screen, int width, int height) {
+        State(Object client, Object screen, Object hubScreen, int width, int height) {
             this.client = client;
             this.screen = screen;
+            this.hubScreen = hubScreen;
             this.width = width;
             this.height = height;
         }

@@ -16,14 +16,13 @@ import java.util.function.*;
  * tolerate mapping/layout changes across the supported 26.2 client stack.
  */
 public final class ServerFinderClient {
-    private static final String USER_AGENT = "ZazusServerSeeker/0.3.64";
+    private static final String USER_AGENT = "ZazusServerSeeker/0.4.0-beta.1";
     private static final String BREAKBLOCKS_API_URL = "https://api.breakblocks.com/api/v0.1/servers/find";
     private static final String CORNBREAD_API_URL = "https://api.cornbread2100.com/v1/servers/random";
     private static final String MINESCAN_API_URL = "https://data.minescan.xyz/servers/random";
     private static final int DISPLAY_RESULTS = 8;
     private static final int API_LIMIT = 20;
     private static final int MAX_PUBLIC_PAGES = 10;
-    private static final int MAX_AUTHENTICATED_PAGES = 50;
     private static final int MAX_RANDOM_PROVIDER_REQUESTS = 25;
     private static final int ALL_SOURCE_SLICE = 3;
     private static final long AUTO_ADD_BETWEEN_BATCHES_MS = 2_000L;
@@ -78,7 +77,7 @@ public final class ServerFinderClient {
         state.sortIndex = clampIndex(ToolState.sortIndex, SORT_LABELS.length, 0);
         state.serverTypeIndex = clampIndex(ToolState.serverTypeIndex, SERVER_TYPE_LABELS.length, 0);
         state.sourceIndex = clampIndex(ToolState.finderSourceIndex, SOURCE_LABELS.length, 0);
-        state.autoAdd = ToolState.autoAddDefault;
+        state.autoAdd = ToolState.autoAddDefault && !ToolState.quickSearch;
         state.open = true;
         STATES.put(screen, state);
 
@@ -126,13 +125,18 @@ public final class ServerFinderClient {
         int rowY = y + 25;
         for (int i = 0; i < DISPLAY_RESULTS; i++) {
             final int index = i;
-            Object row = addTracked(s, Reflection.makeButton("", cx - 226, rowY + i * 23, 330, 20, b -> toggleResult(s, index)));
-            Object add = addTracked(s, Reflection.makeButton("Add", cx + 108, rowY + i * 23, 54, 20, b -> addResult(s, index)));
-            Object detail = addTracked(s, Reflection.makeButton("Details", cx + 166, rowY + i * 23, 60, 20, b -> showDetails(s, index)));
+            Object row = addTracked(s, Reflection.makeButton("", cx - 226, rowY + i * 23, 330, 20, b -> toggleVisibleResult(s, index)));
+            Object add = addTracked(s, Reflection.makeButton("Add", cx + 108, rowY + i * 23, 54, 20, b -> addVisibleResult(s, index)));
+            Object detail = addTracked(s, Reflection.makeButton("Details", cx + 166, rowY + i * 23, 60, 20, b -> showVisibleDetails(s, index)));
             s.resultButtons.add(row);
             s.resultAddButtons.add(add);
             s.resultDetailButtons.add(detail);
         }
+        int navY = rowY + DISPLAY_RESULTS * 23 + 2;
+        s.previousResultsButton = addTracked(s, Reflection.makeButton("< Previous", cx - 150, navY, 90, 20, b -> changeResultPage(s, -1)));
+        s.resultPageButton = addTracked(s, Reflection.makeButton("Page 1/1", cx - 56, navY, 112, 20, b -> {}));
+        Reflection.setBoolean(s.resultPageButton, "active", false);
+        s.nextResultsButton = addTracked(s, Reflection.makeButton("Next >", cx + 60, navY, 90, 20, b -> changeResultPage(s, 1)));
         refreshRows(s);
     }
 
@@ -175,6 +179,7 @@ public final class ServerFinderClient {
     }
 
     private static void refreshMultiplayerAfterFinderClose(OverlayState s) throws Exception {
+        if (ServerTabsEntrypoint.refreshCurrentScreen(s.screen)) return;
         ServerTabsEntrypoint.preserveCurrentViewAfterRefresh(s.screen);
         Method refresh = Reflection.findMethod(s.screen.getClass(), "refreshServerList", 0);
         if (refresh != null) refresh.invoke(s.screen);
@@ -212,6 +217,12 @@ public final class ServerFinderClient {
         resetSearchState(s, "Sort changed — search reset.");
     }
     private static void toggleAuto(OverlayState s) {
+        if (ToolState.quickSearch) {
+            s.autoAdd = false;
+            Reflection.setButtonText(s.autoButton, autoLabel(s));
+            setStatus(s, "Auto-add requires Verified Search. Change Search Mode in Settings.");
+            return;
+        }
         s.autoAdd = !s.autoAdd;
         s.autoAddScheduleToken++;
         Reflection.setButtonText(s.autoButton, autoLabel(s));
@@ -229,6 +240,7 @@ public final class ServerFinderClient {
         s.seenEndpoints.clear();
         s.currentBatch.clear();
         s.results = List.of();
+        s.resultPage = 0;
         s.exhausted = false;
         s.providerRequestCounts.clear();
         s.providerDuplicateOnlyStreaks.clear();
@@ -271,6 +283,11 @@ public final class ServerFinderClient {
         if (MIN_PLAYER_OPTIONS[s.minIndex] > MAX_PLAYER_OPTIONS[s.maxIndex]) {
             setStatus(s, "Minimum players cannot be above maximum players.");
             return;
+        }
+        if (ToolState.quickSearch && s.autoAdd) {
+            s.autoAdd = false;
+            s.autoAddScheduleToken++;
+            Reflection.setButtonText(s.autoButton, autoLabel(s));
         }
         if (s.exhausted) {
             setStatus(s, "No more not-previously-added results are available from " + sourceLabel(s) + ".");
@@ -514,7 +531,21 @@ public final class ServerFinderClient {
         }
         s.providerDuplicateOnlyStreaks.put(provider, 0);
         if (candidates.isEmpty()) { fetchUntilBatchFull(s); return; }
+        if (ToolState.quickSearch) {
+            acceptQuickCandidates(s, provider, candidates);
+            return;
+        }
         verifyProviderCandidatesTwice(s, provider, candidates);
+    }
+
+    private static void acceptQuickCandidates(OverlayState s, Provider provider, List<ServerRecord> candidates) {
+        for (ServerRecord record : candidates) {
+            if (!versionMatches(s, record) || ToolState.isBlocked(record.endpoint())) continue;
+            s.currentBatch.add(record.withSource(record.source() + " (unverified)"));
+        }
+        System.out.println("[Zazu's Server Seeker] Quick Search accepted " + s.currentBatch.size()
+                + " unverified " + provider.label + " result(s) without status probing.");
+        finishBatch(s);
     }
 
     private static void providerFailure(OverlayState s, Provider provider, String reason) {
@@ -559,6 +590,8 @@ public final class ServerFinderClient {
         if (filtered.isEmpty()) { fetchUntilBatchFull(s); return; }
 
         List<String> endpoints = filtered.stream().map(ServerRecord::endpoint).toList();
+        final long verificationStarted = System.nanoTime();
+        final long firstPassStarted = System.nanoTime();
         s.statusProbeAttempts += endpoints.size();
         if (provider == Provider.BREAKBLOCKS) s.breakBlocksProbeAttempts += endpoints.size();
         setStatus(s, "Verifying " + endpoints.size() + " candidate(s) — status check 1/2…");
@@ -582,6 +615,8 @@ public final class ServerFinderClient {
                 }
             }
 
+            logProbePass(provider, 1, filtered.size(), firstPassed.size(), firstPassStarted);
+
             if (firstPassed.isEmpty()) {
                 s.statusRejected += filtered.size();
                 setStatus(s, "Rejected " + filtered.size() + " stale/unreachable candidate(s); searching next batch…");
@@ -597,6 +632,7 @@ public final class ServerFinderClient {
                         if (!s.open || !s.loading || s.searchGeneration != token) return;
 
                         List<String> confirmEndpoints = firstPassed.stream().map(ServerRecord::endpoint).toList();
+                        final long secondPassStarted = System.nanoTime();
                         s.statusProbeAttempts += confirmEndpoints.size();
                         if (provider == Provider.BREAKBLOCKS) s.breakBlocksProbeAttempts += confirmEndpoints.size();
                         setStatus(s, "Verifying " + confirmEndpoints.size() + " candidate(s) — status check 2/2…");
@@ -628,6 +664,11 @@ public final class ServerFinderClient {
                                 }
                             }
 
+                            logProbePass(provider, 2, firstPassed.size(), verified.size(), secondPassStarted);
+                            System.out.println("[Zazu's Server Seeker] " + provider.label
+                                    + " verification finished: " + verified.size() + "/" + filtered.size()
+                                    + " accepted in " + elapsedMillis(verificationStarted) + " ms");
+
                             s.statusRejected += filtered.size() - verified.size();
                             if (verified.isEmpty()) {
                                 setStatus(s, "Second status check rejected remaining candidates; searching again…");
@@ -639,6 +680,15 @@ public final class ServerFinderClient {
                         }));
                     }));
         }));
+    }
+
+    private static void logProbePass(Provider provider, int pass, int attempted, int replied, long started) {
+        System.out.println("[Zazu's Server Seeker] " + provider.label + " status check " + pass
+                + "/2: " + replied + "/" + attempted + " replied in " + elapsedMillis(started) + " ms");
+    }
+
+    private static long elapsedMillis(long started) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
     }
 
     private static Map<String, VanillaStatusProbe.Result> resultMap(List<VanillaStatusProbe.Result> results) {
@@ -719,16 +769,23 @@ public final class ServerFinderClient {
 
     private static void finishBatch(OverlayState s) {
         s.loading = false;
-        List<ServerRecord> sorted = new ArrayList<>(s.currentBatch);
+        LinkedHashMap<String, ServerRecord> accumulated = new LinkedHashMap<>();
+        for (ServerRecord record : s.results) accumulated.put(normalizeEndpoint(record.endpoint()), record);
+        for (ServerRecord record : s.currentBatch) accumulated.putIfAbsent(normalizeEndpoint(record.endpoint()), record);
+        List<ServerRecord> sorted = new ArrayList<>(accumulated.values());
         sortRecords(s, sorted);
         s.results = List.copyOf(sorted);
+        s.resultPage = Math.max(0, Math.min(s.resultPage, resultPageCount(s) - 1));
         refreshRows(s);
         String suffix = s.exhausted ? " — provider pool exhausted" : " — source: " + sourceLabel(s);
-        String diagnostics = " — verified " + s.liveVerified + " — rejected " + s.statusRejected;
+        String diagnostics = ToolState.quickSearch
+                ? " — unverified provider results"
+                : " — verified " + s.liveVerified + " — rejected " + s.statusRejected;
         if (s.breakBlocksCurrentPage > 0) {
             diagnostics += " — BB p" + s.breakBlocksCurrentPage + " " + s.breakBlocksApiResults + " API";
         }
-        setStatus(s, "New: " + s.results.size() + " shown; " + s.autoAddedThisSession + " added" + suffix + diagnostics);
+        setStatus(s, s.results.size() + " results — page " + (s.resultPage + 1) + "/" + resultPageCount(s)
+                + "; " + s.autoAddedThisSession + " added" + suffix + diagnostics);
         refreshStats(s);
         if (s.autoAdd) {
             long delay = s.exhausted ? AUTO_ADD_AFTER_EXHAUSTED_MS : AUTO_ADD_BETWEEN_BATCHES_MS;
@@ -784,8 +841,10 @@ public final class ServerFinderClient {
     }
 
     private static void refreshRows(OverlayState s) {
+        int start = s.resultPage * DISPLAY_RESULTS;
         for (int i = 0; i < DISPLAY_RESULTS; i++) {
-            boolean has = i < s.results.size();
+            int resultIndex = start + i;
+            boolean has = resultIndex < s.results.size();
             Object row = s.resultButtons.size() > i ? s.resultButtons.get(i) : null;
             Object add = s.resultAddButtons.size() > i ? s.resultAddButtons.get(i) : null;
             Object detail = s.resultDetailButtons.size() > i ? s.resultDetailButtons.get(i) : null;
@@ -793,14 +852,44 @@ public final class ServerFinderClient {
             Reflection.setBoolean(add, "visible", has); Reflection.setBoolean(add, "active", has);
             Reflection.setBoolean(detail, "visible", has); Reflection.setBoolean(detail, "active", has);
             if (has) {
-                ServerRecord r = s.results.get(i);
-                String text = shorten(r.endpoint() + " | " + r.version() + " | " + r.playersOnline() + "/" + r.playersMax() + " | VERIFIED", 58);
+                ServerRecord r = s.results.get(resultIndex);
+                String verification = r.source().endsWith(" (unverified)") ? "UNVERIFIED" : "VERIFIED";
+                String text = shorten(r.endpoint() + " | " + r.version() + " | " + r.playersOnline()
+                        + "/" + r.playersMax() + " | " + verification, 58);
                 Reflection.setButtonText(row, text);
                 try { Reflection.setButtonText(add, ServerListBridge.contains(s.client, r.endpoint()) ? "Saved" : "Add"); }
                 catch (Throwable ignored) { Reflection.setButtonText(add, "Add"); }
             }
         }
+        int pages = resultPageCount(s);
+        Reflection.setButtonText(s.resultPageButton, "Page " + (s.resultPage + 1) + "/" + pages);
+        Reflection.setBoolean(s.previousResultsButton, "visible", !s.results.isEmpty());
+        Reflection.setBoolean(s.nextResultsButton, "visible", !s.results.isEmpty());
+        Reflection.setBoolean(s.resultPageButton, "visible", !s.results.isEmpty());
+        Reflection.setBoolean(s.previousResultsButton, "active", s.resultPage > 0);
+        Reflection.setBoolean(s.nextResultsButton, "active", s.resultPage + 1 < pages);
     }
+
+    private static int resultPageCount(OverlayState s) {
+        return Math.max(1, (s.results.size() + DISPLAY_RESULTS - 1) / DISPLAY_RESULTS);
+    }
+
+    private static int visibleResultIndex(OverlayState s, int row) {
+        return s.resultPage * DISPLAY_RESULTS + row;
+    }
+
+    private static void changeResultPage(OverlayState s, int direction) {
+        int next = Math.max(0, Math.min(s.resultPage + direction, resultPageCount(s) - 1));
+        if (next == s.resultPage) return;
+        s.resultPage = next;
+        refreshRows(s);
+        setStatus(s, s.results.size() + (ToolState.quickSearch ? " quick" : " verified")
+                + " results — page " + (s.resultPage + 1) + "/" + resultPageCount(s));
+    }
+
+    private static void addVisibleResult(OverlayState s, int row) { addResult(s, visibleResultIndex(s, row)); }
+    private static void toggleVisibleResult(OverlayState s, int row) { toggleResult(s, visibleResultIndex(s, row)); }
+    private static void showVisibleDetails(OverlayState s, int row) { showDetails(s, visibleResultIndex(s, row)); }
 
     private static void addResult(OverlayState s, int index) {
         if (index < 0 || index >= s.results.size()) return;
@@ -875,13 +964,27 @@ public final class ServerFinderClient {
             addSub(s, Reflection.makeButton("Finder Source: " + sourceLabel(s), x + 210, y, 200, 20, b -> { cycleSource(s); showSettings(s); })); y += 24;
             addSub(s, Reflection.makeButton("BreakBlocks Age: " + breakBlocksAgeLabel(), x, y, 200, 20, b -> { cycleBreakBlocksAge(s); showSettings(s); }));
             addSub(s, Reflection.makeButton("Clear Added History (" + ToolState.addedHistoryCount() + ")", x + 210, y, 200, 20, b -> { ToolState.clearAddedHistory(); showSettings(s); })); y += 28;
-            addSub(s, Reflection.makeButton("Reset Added/Deleted Stats", x, y, 200, 20, b -> { ToolState.resetStats(); showSettings(s); })); y += 28;
+            addSub(s, Reflection.makeButton("Reset Added/Deleted Stats", x, y, 200, 20, b -> { ToolState.resetStats(); showSettings(s); }));
+            addSub(s, Reflection.makeButton("Search Mode: " + (ToolState.quickSearch ? "Quick" : "Verified"), x + 210, y, 200, 20, b -> { toggleSearchMode(s); showSettings(s); })); y += 28;
             ToolState.reloadBreakBlocksApiKey();
             addSubLabel(s, breakBlocksApiStatusLabel(s), x, y, 410); y += 24;
             addSubLabel(s, "Config key: breakBlocksApiKey=...", x, y, 260);
             addSub(s, Reflection.makeButton("Back", x + 310, y, 100, 20, b -> { clearSubView(s); showMain(s); refreshStats(s); })); y += 24;
             addSubLabel(s, "config/zazus-server-tool.properties", x, y, 410);
         } catch (Throwable t) { log("Could not open settings", t); clearSubView(s); showMain(s); }
+    }
+
+    private static void toggleSearchMode(OverlayState s) {
+        ToolState.quickSearch = !ToolState.quickSearch;
+        if (ToolState.quickSearch && s.autoAdd) {
+            s.autoAdd = false;
+            s.autoAddScheduleToken++;
+            Reflection.setButtonText(s.autoButton, autoLabel(s));
+        }
+        ToolState.save();
+        resetSearchState(s, ToolState.quickSearch
+                ? "Quick Search enabled — results are unverified and Auto-add is disabled."
+                : "Verified Search enabled — two status checks required.");
     }
 
     private static void showBlockedList(OverlayState s) {
@@ -931,7 +1034,6 @@ public final class ServerFinderClient {
     private static String maxLabel(OverlayState s) { return "Max: " + (MAX_PLAYER_OPTIONS[s.maxIndex] >= 999999 ? "Any" : MAX_PLAYER_OPTIONS[s.maxIndex]); }
     private static String serverTypeLabel(OverlayState s) { return "Type: " + SERVER_TYPE_LABELS[s.serverTypeIndex]; }
     private static int maxBreakBlocksPages(OverlayState s) {
-        if (ToolState.hasBreakBlocksApiKey() && !s.apiKeyDisabledForSession) return MAX_AUTHENTICATED_PAGES;
         return s.serverTypeIndex == 2 ? 2 : MAX_PUBLIC_PAGES;
     }
     private static String sourceLabel(OverlayState s) { return SOURCE_LABELS[clampIndex(s.sourceIndex, SOURCE_LABELS.length, 0)]; }
@@ -1125,7 +1227,7 @@ public final class ServerFinderClient {
         final EnumMap<Provider, Integer> providerDuplicateOnlyStreaks = new EnumMap<>(Provider.class);
         final EnumSet<Provider> disabledProviders = EnumSet.noneOf(Provider.class);
         boolean open, loading, autoAdd, exhausted, apiKeyDisabledForSession, apiKeyAcceptedThisSession;
-        int versionIndex, minIndex, maxIndex, sortIndex, serverTypeIndex, sourceIndex, autoAddedThisSession, blockedPage, allSourceCursor;
+        int versionIndex, minIndex, maxIndex, sortIndex, serverTypeIndex, sourceIndex, autoAddedThisSession, blockedPage, resultPage, allSourceCursor;
         long autoAddScheduleToken, searchGeneration;
         int breakBlocksCurrentPage, breakBlocksApiResults, breakBlocksProbeAttempts, breakBlocksStatusReplies, breakBlocksLiveVerified;
         int breakBlocksDnsFailures, breakBlocksUnreachableFailures, breakBlocksTimeoutFailures, breakBlocksProbeErrors, breakBlocksIncompatibleReplies;
@@ -1135,6 +1237,7 @@ public final class ServerFinderClient {
         Provider activeProvider;
         List<ServerRecord> results = List.of();
         Object versionButton, minButton, maxButton, serverTypeButton, findButton, autoButton, resetButton, closeButton, sortButton, settingsButton, blockedButton, statsButton, statusButton;
+        Object previousResultsButton, resultPageButton, nextResultsButton;
         OverlayState(Object client, Object screen, int width, int height) { this.client = client; this.screen = screen; this.width = width; this.height = height; }
     }
 
@@ -1149,8 +1252,12 @@ public final class ServerFinderClient {
                     playersOnline, playersMax, motd, country, countryCode, city, region, lastPing, modpack,
                     offlineMode, whitelisted, plugins, liveProtocol, source);
         }
+        ServerRecord withSource(String newSource) {
+            return new ServerRecord(address, port, version, playersOnline, playersMax, motd, country, countryCode,
+                    city, region, lastPing, modpack, offlineMode, whitelisted, plugins, protocol, newSource);
+        }
         String endpoint() { return port == 25565 ? address : address + ":" + port; }
-        String displayName() { return "Zazu " + address + " [" + version + "]"; }
+        String displayName() { return address + " [" + version + "]"; }
     }
 
     /** Reflection bridge around Minecraft's servers.dat / ServerList classes. */

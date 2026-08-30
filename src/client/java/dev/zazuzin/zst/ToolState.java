@@ -6,12 +6,13 @@ import java.nio.file.*;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.*;
 
-/** Persistent settings/history format used by the 0.3.x releases. */
+/** Persistent settings and Finder history. */
 final class ToolState {
     static boolean skipAddedHistory = true;
     static boolean blockDeleted = true;
     static boolean favouritesFirst = true;
     static boolean autoAddDefault = false;
+    static boolean quickSearch = false;
     static int autoAddLimit = 25;
     static int versionIndex = 1;
     static int minIndex = 1;
@@ -19,7 +20,7 @@ final class ToolState {
     static int sortIndex = 0;
     static int serverTypeIndex = 0;
     static int finderSourceIndex = 0;
-    static int breakBlocksMaxAgeDays = 30;
+    static int breakBlocksMaxAgeDays = 7;
     static long addedCount = 0;
     static long deletedCount = 0;
     private static String breakBlocksApiKey = "";
@@ -54,6 +55,7 @@ final class ToolState {
         blockDeleted = bool(p, "blockDeleted", true);
         favouritesFirst = bool(p, "favouritesFirst", true);
         autoAddDefault = bool(p, "autoAddDefault", false);
+        quickSearch = bool(p, "quickSearch", false);
         autoAddLimit = integer(p, "autoAddLimit", 25);
         versionIndex = integer(p, "versionIndex", 1);
         minIndex = integer(p, "minIndex", 1);
@@ -61,7 +63,7 @@ final class ToolState {
         sortIndex = integer(p, "sortIndex", 0);
         serverTypeIndex = integer(p, "serverTypeIndex", 0);
         finderSourceIndex = integer(p, "finderSourceIndex", 0);
-        breakBlocksMaxAgeDays = normalizeBreakBlocksAge(integer(p, "breakBlocksMaxAgeDays", 30));
+        breakBlocksMaxAgeDays = normalizeBreakBlocksAge(integer(p, "breakBlocksMaxAgeDays", 7));
         addedCount = longValue(p, "addedCount", 0);
         deletedCount = longValue(p, "deletedCount", 0);
         breakBlocksApiKey = p.getProperty("breakBlocksApiKey", "").trim();
@@ -76,7 +78,8 @@ final class ToolState {
         decodeMap(p.getProperty("addedProtocols", ""), ADDED_PROTOCOLS);
 
         // Create/migrate the config so users always have an obvious blank API-key field to fill in.
-        if (!configExisted || !p.containsKey("breakBlocksApiKey") || !p.containsKey("breakBlocksMaxAgeDays")) save();
+        if (!configExisted || !p.containsKey("breakBlocksApiKey")
+                || !p.containsKey("breakBlocksMaxAgeDays") || !p.containsKey("quickSearch")) save();
         else restrictConfigPermissions();
     }
 
@@ -91,6 +94,7 @@ final class ToolState {
         p.setProperty("blockDeleted", String.valueOf(blockDeleted));
         p.setProperty("favouritesFirst", String.valueOf(favouritesFirst));
         p.setProperty("autoAddDefault", String.valueOf(autoAddDefault));
+        p.setProperty("quickSearch", String.valueOf(quickSearch));
         p.setProperty("autoAddLimit", String.valueOf(autoAddLimit));
         p.setProperty("versionIndex", String.valueOf(versionIndex));
         p.setProperty("minIndex", String.valueOf(minIndex));

@@ -40,7 +40,7 @@ public final class WhitelistAutoDeleteEntrypoint implements ClientModInitializer
                         return null;
                     });
             registerGlobalTickFallback();
-            System.out.println("[Zazu's Server Seeker] 0.3.41 whitelist auto-delete enabled (screen + client-tick detection).");
+            System.out.println("[Zazu's Server Seeker] Whitelist cleanup enabled (screen and client-tick detection).");
         } catch (Throwable t) {
             System.err.println("[Zazu's Server Seeker] Whitelist watcher registration failed: " + Reflection.unwrap(t));
         }

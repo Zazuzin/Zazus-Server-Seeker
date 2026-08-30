@@ -15,9 +15,9 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
     public void onInitializeClient() {
         try {
             registerGlobalAfterInit();
-            System.out.println("[Zazu's Server Seeker] 0.3.41 multiplayer management hook registered.");
+            System.out.println("[Zazu's Server Seeker] Multiplayer management hook registered.");
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Seeker] 0.3.41 failed to register: " + Reflection.unwrap(t));
+            System.err.println("[Zazu's Server Seeker] Multiplayer management hook failed to register: " + Reflection.unwrap(t));
         }
     }
 
@@ -58,7 +58,7 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         Reflection.addWidget(screen, state.finderButton);
         MANAGED_WIDGETS.add(state.finderButton);
 
-        state.deleteAllButton = Reflection.makeButton("Delete Non-Favourites", 6, 6, 148, 20,
+        state.deleteAllButton = Reflection.makeButton("Delete All Servers", 6, 6, 148, 20,
                 b -> deleteAllPressed(state));
         Reflection.addWidget(screen, state.deleteAllButton);
         MANAGED_WIDGETS.add(state.deleteAllButton);
@@ -72,7 +72,7 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         createPerServerButtons(state);
         registerRowButtonMouseInterceptor(state);
         registerAfterTick(state);
-        System.out.println("[Zazu's Server Seeker] 0.3.41 multiplayer controls installed. ViaFabricPlus integration: " + (ViaFabricPlusBridge.isAvailable() ? "available" : "not installed"));
+        System.out.println("[Zazu's Server Seeker] Multiplayer controls installed. ViaFabricPlus integration: " + (ViaFabricPlusBridge.isAvailable() ? "available" : "not installed"));
     }
 
     private static void detachManagedWidgets(MultiplayerState state) {
@@ -83,7 +83,6 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         for (ServerButtons buttons : new ArrayList<>(state.serverButtons)) {
             Reflection.removeWidget(state.screen, buttons.favourite);
             Reflection.removeWidget(state.screen, buttons.delete);
-            Reflection.removeWidget(state.screen, buttons.health);
         }
         state.serverButtons.clear();
     }
@@ -92,7 +91,6 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         for (ServerButtons buttons : state.serverButtons) {
             Reflection.removeWidget(state.screen, buttons.favourite);
             Reflection.removeWidget(state.screen, buttons.delete);
-            Reflection.removeWidget(state.screen, buttons.health);
         }
         state.serverButtons.clear();
         List<Object> entries = onlineServerEntries(state.screen);
@@ -104,15 +102,10 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
             ServerButtons sb = new ServerButtons(entry, data, endpoint);
             sb.favourite = Reflection.makeButton(isFavourite(data) ? "★" : "☆", 0, -100, 22, 20, b -> toggleFavourite(state, sb));
             sb.delete = Reflection.makeButton(isFavourite(data) ? "Locked" : "Delete", 0, -100, 48, 20, b -> deleteSingle(state, sb));
-            sb.health = Reflection.makeButton(healthLabel(endpoint), 0, -100, 58, 20, b -> {
-                ServerCategoryStore.resetHealth(endpoint); try { updatePerServerButtons(state); } catch (Throwable ignored) {}
-            });
             Reflection.addWidget(state.screen, sb.favourite);
             Reflection.addWidget(state.screen, sb.delete);
-            Reflection.addWidget(state.screen, sb.health);
             MANAGED_WIDGETS.add(sb.favourite);
             MANAGED_WIDGETS.add(sb.delete);
-            MANAGED_WIDGETS.add(sb.health);
             state.serverButtons.add(sb);
         }
         updatePerServerButtons(state);
@@ -139,6 +132,9 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
             if (mouse == null || mouseButton(mouse) != 0) return Boolean.TRUE;
             double x = mouseCoordinate(mouse, "x"), y = mouseCoordinate(mouse, "y");
             try {
+                if (visibleAndContains(state.deleteAllButton, x, y)) {
+                    deleteAllPressed(state); return Boolean.FALSE;
+                }
                 if (visibleAndContains(state.undoButton, x, y)) {
                     undoLastDelete(state); return Boolean.FALSE;
                 }
@@ -149,11 +145,6 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
                     }
                     if (visibleAndContains(buttons.delete, x, y)) {
                         deleteSingle(state, buttons);
-                        return Boolean.FALSE;
-                    }
-                    if (visibleAndContains(buttons.health, x, y)) {
-                        ServerCategoryStore.resetHealth(buttons.endpoint);
-                        updatePerServerButtons(state);
                         return Boolean.FALSE;
                     }
                 }
@@ -222,6 +213,8 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
             try {
                 if (STATES.get(state.screen) != state) return null;
                 if (Reflection.currentScreen(state.client) != state.screen) return null;
+                state.width = Reflection.screenWidth(state.screen, state.width);
+                state.height = Reflection.screenHeight(state.screen, state.height);
                 updatePerServerButtons(state);
                 updateDeleteAllConfirmation(state);
                 syncViaFabricPlusForSelected(state);
@@ -270,11 +263,10 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
     static List<Object> rowWidgets(Object screen) {
         MultiplayerState state = STATES.get(screen);
         if (state == null) return List.of();
-        ArrayList<Object> out = new ArrayList<>(state.serverButtons.size() * 4);
+        ArrayList<Object> out = new ArrayList<>(state.serverButtons.size() * 2);
         for (ServerButtons buttons : state.serverButtons) {
             if (buttons.favourite != null) out.add(buttons.favourite);
             if (buttons.delete != null) out.add(buttons.delete);
-            if (buttons.health != null) out.add(buttons.health);
         }
         return out;
     }
@@ -297,6 +289,8 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         Object listWidget = Reflection.getField(state.screen, "serverSelectionList", "serverList");
         int listTop = listWidget == null ? 32 : Reflection.intValue(listWidget, "getY", Reflection.intValue(listWidget, "y0", 32));
         int listBottom = listWidget == null ? state.height - 64 : listTop + Reflection.intValue(listWidget, "getHeight", state.height - listTop - 64);
+        int footerTop = vanillaFooterTop(state);
+        listBottom = Math.min(listBottom, footerTop - 4);
         int rowLeft = listWidget == null ? state.width / 2 - 154 : Reflection.intValue(listWidget, "getRowLeft", state.width / 2 - 154);
         int rowWidth = listWidget == null ? 308 : Reflection.intValue(listWidget, "getRowWidth", 308);
         int scrollbarX = listWidget == null ? rowLeft + rowWidth + 4 : Reflection.intValue(listWidget, "getScrollbarPosition", rowLeft + rowWidth + 4);
@@ -310,39 +304,47 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
                 createPerServerButtons(state); return;
             }
             int top = currentRowTop(listWidget, entry, i, listTop);
-            boolean onScreen = top + 20 >= listTop && top <= listBottom - 2;
+            int controlY = currentRowControlY(listWidget, entry, top);
+            boolean onScreen = controlY >= listTop && controlY + 20 <= listBottom;
             boolean show = !finderOpen && onScreen;
             Reflection.setBoolean(sb.favourite, "visible", show);
             Reflection.setBoolean(sb.delete, "visible", show);
-            Reflection.setBoolean(sb.health, "visible", show);
             Reflection.setBoolean(sb.favourite, "active", show);
             boolean fav = isFavourite(data);
             Reflection.setBoolean(sb.delete, "active", show && !fav);
-            Reflection.setBoolean(sb.health, "active", show);
             Reflection.setButtonText(sb.favourite, fav ? "★" : "☆");
-            Reflection.setButtonText(sb.health, healthLabel(endpoint));
             Reflection.setButtonText(sb.delete, fav ? "Locked" : "Delete");
 
             // Keep row controls in one deterministic column immediately to the
-            // LEFT of Minecraft's centred server row. 26.2 can report getRowLeft()
-            // as zero through reflective/modded list wrappers; falling back to the
-            // screen-centred row calculation prevents the buttons jumping to the
-            // ping/player-count side of the row.
-            int totalWidth = 22 + 4 + 58 + 4 + 48;
+            // RIGHT of Minecraft's centred server row, away from the Server
+            // Seeker navigation and bulk-action rail on the left.
+            int totalWidth = 22 + 4 + 48;
             int actualRowLeft = currentRowLeft(listWidget, entry, rowLeft);
             int centeredRowLeft = Math.max(6, (state.width - rowWidth) / 2);
             boolean implausibleLeft = actualRowLeft < totalWidth + 12
                     || actualRowLeft + Math.max(1, rowWidth) > state.width + 4;
             if (implausibleLeft) actualRowLeft = centeredRowLeft;
-            int favX = Math.max(6, actualRowLeft - totalWidth - 6);
+            int rowRight = actualRowLeft + rowWidth;
+            int favX = Math.min(Math.max(6, state.width - totalWidth - 6),
+                    Math.max(rowRight + 16, scrollbarX + 16));
             int deleteX = favX + 26;
-            int healthX = deleteX; deleteX = healthX + 62;
-            int controlY = currentRowControlY(listWidget, entry, top);
             Reflection.setPosition(sb.favourite, favX, controlY);
             Reflection.setPosition(sb.delete, deleteX, controlY);
-            Reflection.setPosition(sb.health, healthX, controlY);
         }
         protectVanillaDeleteButton(state);
+    }
+
+    private static int vanillaFooterTop(MultiplayerState state) throws Exception {
+        int footerTop = state.height - 52;
+        for (Object widget : Reflection.widgets(state.screen)) {
+            if (isManagedWidget(widget)) continue;
+            String label = widgetLabel(widget).trim().toLowerCase(Locale.ROOT);
+            if (!(label.equals("join server") || label.equals("direct connection") || label.equals("add server")
+                    || label.equals("edit") || label.equals("delete") || label.equals("refresh") || label.equals("back"))) continue;
+            int y = Reflection.intValue(widget, "getY", Reflection.intValue(widget, "y", state.height));
+            if (y > state.height / 2) footerTop = Math.min(footerTop, y);
+        }
+        return footerTop;
     }
 
     private static int currentRowLeft(Object listWidget, Object entry, int fallbackLeft) {
@@ -423,7 +425,8 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
 
         String name = ServerFinderClient.ServerListBridge.serverName(server);
         boolean removingFavourite = name.startsWith(FAV_PREFIX) || ServerCategoryStore.isFavourite(endpoint);
-        String updated = removingFavourite ? name.substring(FAV_PREFIX.length()) : FAV_PREFIX + name;
+        String updated = removingFavourite && name.startsWith(FAV_PREFIX)
+                ? name.substring(FAV_PREFIX.length()) : removingFavourite ? name : FAV_PREFIX + name;
         ServerFinderClient.ServerListBridge.setServerName(server, updated);
         ServerFinderClient.ServerListBridge.save(list);
         ServerCategoryStore.setFavourite(endpoint, !removingFavourite);
@@ -438,15 +441,23 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
             if (server == null) return;
             String name = ServerFinderClient.ServerListBridge.serverName(server);
             boolean removingFavourite = name.startsWith(FAV_PREFIX) || ServerCategoryStore.isFavourite(sb.endpoint);
-            String updated = removingFavourite ? name.substring(FAV_PREFIX.length()) : FAV_PREFIX + name;
+            String updated = removingFavourite && name.startsWith(FAV_PREFIX)
+                    ? name.substring(FAV_PREFIX.length()) : removingFavourite ? name : FAV_PREFIX + name;
             ServerFinderClient.ServerListBridge.setServerName(server, updated);
+            // Keep the current screen row in sync before any category refresh.
+            // Otherwise savedFromScreen can see its stale starred name and
+            // migrate the endpoint straight back into Favourites.
+            if (sb.serverData != server) ServerFinderClient.ServerListBridge.setServerName(sb.serverData, updated);
             ServerFinderClient.ServerListBridge.save(list);
             ServerCategoryStore.setFavourite(sb.endpoint, !removingFavourite);
             if (removingFavourite) {
                 // User preference: unfavouriting always promotes the server to the
                 // established Servers category, even if it originally came from Scanned.
                 ServerCategoryStore.promoteVerified(sb.endpoint);
-                ServerTabsEntrypoint.requestViewAfterRefresh(state.screen, ServerCategoryStore.Tab.SERVERS);
+                // Stay in Favourites. Recreating this category removes only the
+                // clicked row from the filtered view and never exposes the
+                // Servers-only Auto Join / Delete All controls.
+                ServerTabsEntrypoint.requestViewAfterRefresh(state.screen, ServerCategoryStore.Tab.FAVOURITES);
             } else {
                 ServerTabsEntrypoint.requestViewAfterRefresh(state.screen, ServerCategoryStore.Tab.FAVOURITES);
             }
@@ -479,7 +490,7 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         if (now > state.deleteAllArmedUntil) {
             state.deleteAllArmedUntil = now + 3500;
             Reflection.setButtonText(state.deleteAllButton,
-                    state.scannedDeleteMode ? "Confirm Delete Scanned" : "Confirm Delete Non-Favs");
+                    state.scannedDeleteMode ? "Confirm Delete Scanned" : "Confirm Delete Servers");
             return;
         }
         state.deleteAllArmedUntil = 0;
@@ -487,6 +498,7 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         try {
             Object list = ServerFinderClient.ServerListBridge.createLoadedList(state.client);
             List<Object> servers = new ArrayList<>(ServerFinderClient.ServerListBridge.servers(list));
+            List<ServerCategoryStore.DeletedServer> undoBatch = new ArrayList<>();
             int deleted = 0;
             for (Object server : servers) {
                 if (isFavourite(server)) continue;
@@ -494,23 +506,26 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
                 boolean scanned = ServerCategoryStore.isScanned(endpoint);
                 if (state.scannedDeleteMode != scanned) continue;
                 if (deleteFromLoadedList(list, server)) {
-                    ServerCategoryStore.recordUndo(ServerFinderClient.ServerListBridge.serverName(server), endpoint);
+                    undoBatch.add(new ServerCategoryStore.DeletedServer(
+                            ServerFinderClient.ServerListBridge.serverName(server), endpoint,
+                            ServerCategoryStore.isFavourite(endpoint), scanned));
                     ToolState.recordDeleted(endpoint);
                     ServerCategoryStore.remove(endpoint);
                     deleted++;
                 }
             }
+            ServerCategoryStore.recordUndoBatch(undoBatch);
             ServerFinderClient.ServerListBridge.save(list);
             refreshMultiplayerScreen(state.client, state.screen);
             System.out.println("[Zazu's Server Seeker] Deleted " + deleted
-                    + (state.scannedDeleteMode ? " scanned servers." : " non-favourite servers."));
+                    + (state.scannedDeleteMode ? " scanned servers." : " established servers."));
         } catch (Throwable t) {
             System.err.println("[Zazu's Server Seeker] Bulk delete failed: " + Reflection.unwrap(t));
         }
     }
 
     private static String bulkDeleteLabel(MultiplayerState state) {
-        return state.scannedDeleteMode ? "Delete All Scanned" : "Delete Non-Favourites";
+        return state.scannedDeleteMode ? "Delete All Scanned" : "Delete All Servers";
     }
 
     private static boolean deleteFromLoadedList(Object list, Object server) throws Exception {
@@ -518,9 +533,10 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         return backing.remove(server);
     }
 
-    private static String healthLabel(String endpoint) { int failures=ServerCategoryStore.healthFailures(endpoint); return failures==0?"H OK":"H "+failures+"/3"; }
     private static void undoLastDelete(MultiplayerState state) {
-        if (ServerCategoryStore.undoLastDelete(state.client)) { refreshMultiplayerScreen(state.client,state.screen); System.out.println("[Zazu's Server Seeker] Restored last deleted server."); }
+        if (!ServerCategoryStore.undoLastDelete(state.client)) return;
+        refreshMultiplayerScreen(state.client, state.screen);
+        System.out.println("[Zazu's Server Seeker] Restored last deleted server.");
     }
 
     private static void updateDeleteAllConfirmation(MultiplayerState state) {
@@ -574,6 +590,10 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
     }
 
     static void refreshMultiplayerScreen(Object client, Object screen) {
+        if (ServerTabsEntrypoint.refreshCurrentScreen(screen)) {
+            System.out.println("[Zazu's Server Seeker] Refreshed current category in place.");
+            return;
+        }
         ServerTabsEntrypoint.preserveCurrentViewAfterRefresh(screen);
         try {
             Method refresh = Reflection.findMethod(screen.getClass(), "refreshServerList", 0);
@@ -683,7 +703,7 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
 
     static final class MultiplayerState {
         final Object client, screen;
-        final int width, height;
+        int width, height;
         final List<ServerButtons> serverButtons = new ArrayList<>();
         Object finderButton, deleteAllButton, undoButton;
         boolean disabledVanillaDelete, loggedTickFailure, loggedViaFailure;
@@ -698,7 +718,7 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
     static final class ServerButtons {
         final Object entry, serverData;
         final String endpoint;
-        Object favourite, delete, health;
+        Object favourite, delete;
         ServerButtons(Object entry, Object serverData, String endpoint) { this.entry = entry; this.serverData = serverData; this.endpoint = endpoint; }
     }
 }
