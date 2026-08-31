@@ -289,8 +289,26 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
             if (coreAutoJoinEnabled()) stopCoreAutoJoin(true);
             returnToCategoryHub(state);
         });
-        state.categoryRefreshButton = makeButton("Refresh", toolX,
-                Math.max(6, categoriesY - buttonH - 4), leftWidth, buttonH,
+        // Reuse the native Refresh slot exactly. Minecraft changes the footer
+        // widths with GUI scale, and its Back slot is not always the same width
+        // as the other buttons. Recalculating four equal slots caused a small
+        // overlap in full-screen mode even though windowed mode looked correct.
+        for (Object widget : state.baseWidgets) {
+            if (!isNativeRefreshWidget(state, widget)) continue;
+            state.nativeRefreshBounds = originalBounds(state, widget);
+            if (state.nativeRefreshBounds != null) break;
+        }
+        Bounds refreshBounds = state.nativeRefreshBounds;
+        if (refreshBounds == null) {
+            int footerGap = 4;
+            int footerWidth = Math.min(100, Math.max(70, (state.width - 360) / 4));
+            int footerTotal = footerWidth * 4 + footerGap * 3;
+            int footerStartX = Math.max(6, (state.width - footerTotal) / 2);
+            refreshBounds = new Bounds(footerStartX + 2 * (footerWidth + footerGap),
+                    Math.max(6, state.height - 28), footerWidth, buttonH);
+        }
+        state.categoryRefreshButton = makeButton("Refresh", refreshBounds.x(),
+                refreshBounds.y(), refreshBounds.width(), refreshBounds.height(),
                 b -> refreshCategoryInPlace(state));
 
         rememberOwned(state.favouritesButton, state.serversButton, state.scannedButton, state.recentButton,
@@ -998,16 +1016,11 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         if (tool != null) setBounds(tool, railX, finderY, railW, toolH);
         setBounds(state.categoriesButton, railX, categoriesY, railW, toolH);
 
-        // Use the vanilla four-button footer geometry (Edit, Delete, Refresh,
-        // Back) while retaining Server Seeker's proven in-place callback.
-        int footerGap = 4;
-        // Minecraft compresses this row on narrow GUIs. At Steam Deck's
-        // 640-wide scaled GUI the native slots are 70px, not desktop's 100px.
-        int footerWidth = Math.min(100, Math.max(70, (state.width - 360) / 4));
-        int footerTotal = footerWidth * 4 + footerGap * 3;
-        int footerStartX = Math.max(margin, (state.width - footerTotal) / 2);
-        int refreshX = footerStartX + 2 * (footerWidth + footerGap);
-        setBounds(state.categoryRefreshButton, refreshX, Math.max(6, state.height - 28), footerWidth, toolH);
+        Bounds refreshBounds = state.nativeRefreshBounds;
+        if (refreshBounds != null) {
+            setBounds(state.categoryRefreshButton, refreshBounds.x(), refreshBounds.y(),
+                    refreshBounds.width(), refreshBounds.height());
+        }
 
         if (state.autoJoinButton != null) {
             int autoY = Math.max(listTop, categoriesY - toolH - 4);
@@ -1337,6 +1350,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         int width, height;
         final List<Object> baseWidgets = new ArrayList<>();
         final Map<Object, Bounds> originalBounds = new IdentityHashMap<>();
+        Bounds nativeRefreshBounds;
         Object listWidget;
         Object favouritesButton, serversButton, scannedButton, recentButton, categoriesButton, categoryRefreshButton;
         Object autoJoinButton;
