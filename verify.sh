@@ -10,7 +10,7 @@ grep -q 'GNU GENERAL PUBLIC LICENSE' "$ROOT/LICENSE" || { echo "GPL-3.0 license 
 grep -q '"license": "GPL-3.0-only"' "$ROOT/src/main/resources/fabric.mod.json" || {
   echo "Fabric GPL-3.0-only metadata is missing" >&2; exit 1;
 }
-JAR="${1:-$ROOT/build/libs/Zazus-Server-Seeker-${VERSION}+mc${MC_VERSION}.jar}"
+JAR="${1:-$ROOT/build/libs/Zazus-Server-Seeker-${VERSION}-mc${MC_VERSION}.jar}"
 [[ -f "$JAR" ]] || { echo "JAR not found: $JAR" >&2; exit 1; }
 
 grep -q 'undoLastDeleteButton' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {

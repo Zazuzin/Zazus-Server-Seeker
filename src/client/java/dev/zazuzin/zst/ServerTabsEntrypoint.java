@@ -289,8 +289,17 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
             if (coreAutoJoinEnabled()) stopCoreAutoJoin(true);
             returnToCategoryHub(state);
         });
-        state.categoryRefreshButton = makeButton("Refresh", toolX,
-                Math.max(6, categoriesY - buttonH - 4), leftWidth, buttonH,
+        // Construct Refresh at its final footer size. On Minecraft 26.2 some
+        // button implementations retain their construction width even after a
+        // reflective setWidth call, which made the desktop button extend under
+        // Back while the narrower Steam Deck layout appeared correct.
+        int footerGap = 4;
+        int footerWidth = Math.min(100, Math.max(70, (state.width - 360) / 4));
+        int footerTotal = footerWidth * 4 + footerGap * 3;
+        int footerStartX = Math.max(6, (state.width - footerTotal) / 2);
+        int refreshX = footerStartX + 2 * (footerWidth + footerGap);
+        state.categoryRefreshButton = makeButton("Refresh", refreshX,
+                Math.max(6, state.height - 28), footerWidth, buttonH,
                 b -> refreshCategoryInPlace(state));
 
         rememberOwned(state.favouritesButton, state.serversButton, state.scannedButton, state.recentButton,
