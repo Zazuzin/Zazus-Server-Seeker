@@ -5,13 +5,13 @@
 **Zazu's Server Seeker** is a client-side Fabric mod for **Minecraft Java Edition 26.2** that makes discovering, organising and testing multiplayer servers easier from inside Minecraft.
 
 The mod adds a multi-source server Finder, separates saved servers into useful categories, provides favourites and management controls, and includes sequential Auto Join for newly scanned servers. It is a standalone Fabric mod and does **not** require Meteor Client.
-  
+
+Source code and releases: [github.com/Zazuzin/Zazus-Server-Scanner](https://github.com/Zazuzin/Zazus-Server-Scanner)
+Bug reports and feature requests: [GitHub Issues](https://github.com/Zazuzin/Zazus-Server-Scanner/issues)
+
 ## Support and bug reports
 
 Join the [Zazu's EyeBot Network Discord](https://discord.gg/TC4PhPx9sf) for support, beta testing and bug reports. Use the dedicated **Zazu's Server Seeker** channels so reports and suggestions are easy to follow.
-
-You can also submit bug reports and new features suggestions here 
-https://github.com/Zazuzin/Zazus-Server-Seeker/issues
 
 You can also find Zazuzin in the [BreakBlocks Discord](https://breakblocks.com/discord).
 
@@ -42,6 +42,14 @@ The categories are views over Minecraft's normal `servers.dat`; the mod stores c
 - **Cross-provider de-duplication** by normalized `IP:port`.
 - **Two-pass direct Minecraft status verification** before Finder results are displayed or Auto Added.
 - **Optional BreakBlocks API key support**; Cornbread and MineScan do not require a key.
+- **BreakBlocks contribution worker** that submits public double-verified discoveries and stable successful joins through one paced FIFO queue without blocking Minecraft.
+- **Private/LAN separation** that stores confirmed local endpoints in `config/private-lan-servers.txt` instead of sending them to BreakBlocks.
+- **Six-hour contribution cooldown** that avoids repeatedly submitting the same public endpoint from one installation.
+- **Adaptive BreakBlocks request pacing** shared by discovery and contributions. It respects reported rate-limit and reset headers, reserves capacity for Finder searches, and automatically scales when an API key provides a larger allowance.
+- **Persistent contribution queue** that restores unfinished BreakBlocks submissions when Minecraft is restarted.
+- **Contribution Stats screen** with live queue and quota information, session/overall outcomes, failed retries and quick access to the local log folder.
+- **Server Seeker Stats screen** with clearly labelled added-history, added, deleted, favourite and blocked totals.
+- **Finder and Settings tooltips** explaining filters, selectable options and preference behaviour.
 - **Configurable BreakBlocks recency window**: 1, 7, 14, 21 or 30 days (default 7).
 - **Verified and Quick search modes**: Verified requires two live Minecraft status replies; Quick shows provider records immediately and disables Auto-add.
 - **Version**, **minimum/maximum player**, and **Any / Premium / Cracked** filtering.
@@ -50,6 +58,7 @@ The categories are views over Minecraft's normal `servers.dat`; the mod stores c
 - **Continuous Auto Add** until stopped or the configured limit is reached.
 - **Added-history tracking** so previously added servers can be skipped.
 - **Favourites** with a dedicated category and an in-game pause-menu Favourite/Unfavourite control.
+- **Current server address** shown on the pause menu with a one-click **Copy IP** control.
 - **Recent Servers** history for the last 5 successful stable joins.
 - **Per-server Delete** controls and **Delete All Servers** for the established Servers category.
 - **Whitelist cleanup** — definite whitelist rejections are automatically removed.
@@ -84,7 +93,12 @@ Open **Finder → Settings** to change the scanner's default behaviour:
 - **Finder Source** — selects Auto, All Sources, BreakBlocks, Cornbread or MineScan. Auto begins with BreakBlocks and can continue with another provider when necessary.
 - **BreakBlocks Age** — limits BreakBlocks results to servers seen within the selected 1, 7, 14, 21 or 30-day window. A shorter window favours newer records; a longer window provides a larger pool.
 - **Search Mode** — Verified performs two direct Minecraft status checks before displaying a server; Quick displays provider results immediately as unverified and requires manual review.
+- **Contribute Servers** — sends public servers that pass both Verified Search checks, plus manually added or Direct Connect public servers that remain connected for roughly eight seconds, to BreakBlocks' public status endpoint. Failed joins are never sent. Confirmed private/LAN endpoints are written only to `config/private-lan-servers.txt`. This is enabled by default and can be disabled at any time.
+- **Contribution Log** — records queued servers and BreakBlocks outcomes in `config/breakblocks-contributions.csv`. The CSV can be opened in a spreadsheet or sent to BreakBlocks for confirmation and never contains the API key.
+- **Contribution Stats** — opens the live queue dashboard. It shows the current endpoint, pending pages, estimated allowance/reset time and outcome totals. Failed contributions can be retried without repeating the Finder search.
 - **BreakBlocks API Key** — shows whether an optional key is configured. The key itself is stored in `config/zazus-server-tool.properties`, not entered on the settings screen.
+
+Finder searches and background contributions share one BreakBlocks request budget. Without rate-limit headers, the mod starts with a conservative anonymous fallback of 20 requests per minute and keeps part of that allowance available for searches. A single FIFO worker sends contributions in order while a separate delayed queue gives due status-refresh follow-ups priority over untouched backlog entries. When BreakBlocks reports a different allowance—such as for an API key—the worker adapts automatically. A `429` response lowers the working estimate and pauses contributions until the reported reset. Servers waiting for capacity retain their queue position and unfinished addresses are restored from `config/breakblocks-contribution-queue.txt` after restarting Minecraft. An accepted endpoint is not submitted again by the same installation for six hours.
 
 The Finder's main screen also provides version, player-count and Premium/Cracked filters plus result sorting. **Reset Search** clears the current result set without deleting saved servers.
 
@@ -111,7 +125,7 @@ Example:
 ```text
 mods/
 ├── fabric-api-0.157.0+26.2.jar
-├── Zazus-Server-Seeker-0.4.0-beta.1+mc26.2.jar
+├── Zazus-Server-Seeker-0.4.1-beta.1-mc26.2.jar
 └── ViaFabricPlus-4.6.1.jar        # optional
 ```
 
@@ -171,7 +185,7 @@ For the verified dependency-free release build, JDK 21+ is sufficient:
 Output:
 
 ```text
-build/libs/Zazus-Server-Seeker-0.4.0-beta.1+mc26.2.jar
+build/libs/Zazus-Server-Seeker-0.4.1-beta.1-mc26.2.jar
 ```
 
 The release classes intentionally target Java 21 bytecode. Minecraft 26.2 itself uses a newer Java runtime.
@@ -188,7 +202,7 @@ gradle build
 - **Mod ID:** `zazus-server-tool`
 - **Package:** `dev.zazuzin.zst`
 - **Author:** Zazuzin
-- **Current source version:** 0.4.0-beta.1
+- **Current source version:** 0.4.1-beta.1
 
 ## License
 

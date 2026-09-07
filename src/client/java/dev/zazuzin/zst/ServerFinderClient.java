@@ -16,7 +16,7 @@ import java.util.function.*;
  * tolerate mapping/layout changes across the supported 26.2 client stack.
  */
 public final class ServerFinderClient {
-    private static final String USER_AGENT = "ZazusServerSeeker/0.4.0-beta.1";
+    private static final String USER_AGENT = "ZazusServerSeeker/0.4.1-beta.1";
     private static final String BREAKBLOCKS_API_URL = "https://api.breakblocks.com/api/v0.1/servers/find";
     private static final String CORNBREAD_API_URL = "https://api.cornbread2100.com/v1/servers/random";
     private static final String MINESCAN_API_URL = "https://data.minescan.xyz/servers/random";
@@ -98,23 +98,32 @@ public final class ServerFinderClient {
     private static void buildOverlay(OverlayState s) throws Exception {
         int cx = s.width / 2;
         int y = 30;
-        s.versionButton = addTracked(s, Reflection.makeButton(versionLabel(s), cx - 190, y, 100, 20, b -> cycleVersion(s)));
-        s.minButton = addTracked(s, Reflection.makeButton(minLabel(s), cx - 86, y, 88, 20, b -> cycleMin(s)));
-        s.maxButton = addTracked(s, Reflection.makeButton(maxLabel(s), cx + 6, y, 88, 20, b -> cycleMax(s)));
-        s.serverTypeButton = addTracked(s, Reflection.makeButton(serverTypeLabel(s), cx + 98, y, 92, 20, b -> cycleServerType(s)));
+        s.findButton = trackedButton(s, "Find New Servers", cx - 208, y, 128,
+                "Search the selected provider for another batch of servers.", b -> findNewServers(s));
+        s.autoButton = trackedButton(s, autoLabel(s), cx - 76, y, 92,
+                "Automatically save servers that pass Verified Search. Options: ON or OFF.", b -> toggleAuto(s));
+        s.resetButton = trackedButton(s, "Reset Search", cx + 20, y, 92,
+                "Clear the current results and begin again with the selected filters.", b -> resetSearchState(s, "Search reset."));
+        s.closeButton = trackedButton(s, "Close Finder", cx + 116, y, 92,
+                "Close Server Finder and return to the multiplayer screen.", b -> closeOverlay(s));
 
         y += 24;
-        s.findButton = addTracked(s, Reflection.makeButton("Find New Servers", cx - 190, y, 128, 20, b -> findNewServers(s)));
-        s.autoButton = addTracked(s, Reflection.makeButton(autoLabel(s), cx - 58, y, 92, 20, b -> toggleAuto(s)));
-        s.resetButton = addTracked(s, Reflection.makeButton("Reset Search", cx + 38, y, 92, 20, b -> resetSearchState(s, "Search reset.")));
-        s.closeButton = addTracked(s, Reflection.makeButton("Close Finder", cx + 134, y, 92, 20, b -> closeOverlay(s)));
+        s.versionButton = trackedButton(s, versionLabel(s), cx - 190, y, 100,
+                "Minecraft version filter. Cycle through supported versions or Any.", b -> cycleVersion(s));
+        s.minButton = trackedButton(s, minLabel(s), cx - 86, y, 88,
+                "Minimum number of players currently online. Cycle through the available limits.", b -> cycleMin(s));
+        s.maxButton = trackedButton(s, maxLabel(s), cx + 6, y, 88,
+                "Maximum number of players currently online. Choose a limit or Any.", b -> cycleMax(s));
+        s.serverTypeButton = trackedButton(s, serverTypeLabel(s), cx + 98, y, 92,
+                "Server login type. Options: Any, Premium or Cracked.", b -> cycleServerType(s));
 
         y += 24;
-        s.sortButton = addTracked(s, Reflection.makeButton(sortLabel(s), cx - 190, y, 100, 20, b -> cycleSort(s)));
-        s.settingsButton = addTracked(s, Reflection.makeButton("Settings", cx - 86, y, 88, 20, b -> showSettings(s)));
-        s.blockedButton = addTracked(s, Reflection.makeButton("Blocked", cx + 6, y, 88, 20, b -> showBlockedList(s)));
-        s.statsButton = addTracked(s, Reflection.makeButton(statsLabel(s), cx + 98, y, 128, 20, b -> {}));
-        Reflection.setBoolean(s.statsButton, "active", false);
+        s.sortButton = trackedButton(s, sortLabel(s), cx - 194, y, 128,
+                "Result order. Cycle through Recent, Players, Ping and other available options.", b -> cycleSort(s));
+        s.blockedButton = trackedButton(s, blockedLabel(), cx - 62, y, 128,
+                "View, unblock or clear servers excluded from future searches.", b -> showBlockedList(s));
+        s.settingsButton = trackedButton(s, "Settings", cx + 70, y, 124,
+                "Open Finder preferences, statistics and contribution controls.", b -> showSettings(s));
 
         y += 26;
         s.statusButton = addTracked(s, Reflection.makeButton(
@@ -144,6 +153,20 @@ public final class ServerFinderClient {
         Reflection.addWidget(s.screen, widget);
         s.widgets.add(widget);
         return widget;
+    }
+
+    private static Object trackedButton(OverlayState s, String text, int x, int y, int width,
+                                        String tooltip, java.util.function.Consumer<Object> pressed) throws Exception {
+        Object button = addTracked(s, Reflection.makeButton(text, x, y, width, 20, pressed));
+        Reflection.setTooltip(button, tooltip);
+        return button;
+    }
+
+    private static Object subButton(OverlayState s, String text, int x, int y, int width,
+                                    String tooltip, java.util.function.Consumer<Object> pressed) throws Exception {
+        Object button = addSub(s, Reflection.makeButton(text, x, y, width, 20, pressed));
+        Reflection.setTooltip(button, tooltip);
+        return button;
     }
 
     private static Object addSub(OverlayState s, Object widget) throws Exception {
@@ -414,6 +437,7 @@ public final class ServerFinderClient {
         String apiKey = allowAuthentication && !s.apiKeyDisabledForSession ? ToolState.breakBlocksApiKey() : "";
         boolean authenticated = !apiKey.isBlank();
         HttpRequest request = buildBreakBlocksRequest(uri, apiKey);
+        BreakBlocksRateBudget.recordSearchRequest(authenticated);
         HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                 .whenComplete((response, error) -> Reflection.execute(s.client,
                         () -> handleBreakBlocksPage(s, page, uri, authenticated, response, error)));
@@ -449,6 +473,8 @@ public final class ServerFinderClient {
         if (error != null) { providerFailure(s, Provider.BREAKBLOCKS, rootMessage(error)); return; }
         if (response == null) { providerFailure(s, Provider.BREAKBLOCKS, "No response"); return; }
 
+        BreakBlocksRateBudget.observe(response, authenticated);
+
         int status = response.statusCode();
         if (authenticated && (status == 401 || status == 403)) {
             s.apiKeyDisabledForSession = true;
@@ -457,6 +483,7 @@ public final class ServerFinderClient {
             return;
         }
         if (status == 429) {
+            BreakBlocksRateBudget.noteRateLimit(response);
             String retry = response.headers().firstValue("Retry-After").orElse("").trim();
             providerFailure(s, Provider.BREAKBLOCKS, retry.isBlank() ? "rate limit reached" : "rate limit; retry in " + retry + "s");
             return;
@@ -731,6 +758,13 @@ public final class ServerFinderClient {
     }
 
     private static void acceptVerifiedCandidates(OverlayState s, Provider provider, List<ServerRecord> verified) {
+        if (ToolState.contributeVerifiedServers) {
+            for (ServerRecord record : verified) {
+                BreakBlocksContributor.submit(record.address(), record.port(),
+                        provider == Provider.BREAKBLOCKS ? record.lastPing() : "");
+            }
+        }
+
         for (ServerRecord r : verified) {
             if (s.currentBatch.size() < DISPLAY_RESULTS) s.currentBatch.add(r);
         }
@@ -956,22 +990,146 @@ public final class ServerFinderClient {
             clearSubView(s); hideMain(s);
             int cx = s.width / 2, x = cx - 210, y = 35;
             addSubLabel(s, "Zazu's Server Seeker Settings", x, y, 420); y += 28;
-            addSub(s, Reflection.makeButton("Skip Added Before: " + onOff(ToolState.skipAddedHistory), x, y, 200, 20, b -> { ToolState.skipAddedHistory = !ToolState.skipAddedHistory; ToolState.save(); showSettings(s); }));
-            addSub(s, Reflection.makeButton("Block Deleted: " + onOff(ToolState.blockDeleted), x + 210, y, 200, 20, b -> { ToolState.blockDeleted = !ToolState.blockDeleted; ToolState.save(); showSettings(s); })); y += 24;
-            addSub(s, Reflection.makeButton("Favourites First: " + onOff(ToolState.favouritesFirst), x, y, 200, 20, b -> { ToolState.favouritesFirst = !ToolState.favouritesFirst; ToolState.save(); showSettings(s); }));
-            addSub(s, Reflection.makeButton("Auto-add Default: " + onOff(ToolState.autoAddDefault), x + 210, y, 200, 20, b -> { ToolState.autoAddDefault = !ToolState.autoAddDefault; ToolState.save(); showSettings(s); })); y += 24;
-            addSub(s, Reflection.makeButton("Auto-add Limit: " + autoAddLimitLabel(), x, y, 200, 20, b -> { cycleAutoAddLimit(); ToolState.save(); showSettings(s); }));
-            addSub(s, Reflection.makeButton("Finder Source: " + sourceLabel(s), x + 210, y, 200, 20, b -> { cycleSource(s); showSettings(s); })); y += 24;
-            addSub(s, Reflection.makeButton("BreakBlocks Age: " + breakBlocksAgeLabel(), x, y, 200, 20, b -> { cycleBreakBlocksAge(s); showSettings(s); }));
-            addSub(s, Reflection.makeButton("Clear Added History (" + ToolState.addedHistoryCount() + ")", x + 210, y, 200, 20, b -> { ToolState.clearAddedHistory(); showSettings(s); })); y += 28;
-            addSub(s, Reflection.makeButton("Reset Added/Deleted Stats", x, y, 200, 20, b -> { ToolState.resetStats(); showSettings(s); }));
-            addSub(s, Reflection.makeButton("Search Mode: " + (ToolState.quickSearch ? "Quick" : "Verified"), x + 210, y, 200, 20, b -> { toggleSearchMode(s); showSettings(s); })); y += 28;
+            subButton(s, "Skip Added Before: " + onOff(ToolState.skipAddedHistory), x, y, 200,
+                    "Skip addresses that Server Seeker has previously added to your server list.", b -> { ToolState.skipAddedHistory = !ToolState.skipAddedHistory; ToolState.save(); showSettings(s); });
+            subButton(s, "Block Deleted: " + onOff(ToolState.blockDeleted), x + 210, y, 200,
+                    "Automatically block a scanned server when you delete it, preventing rediscovery.", b -> { ToolState.blockDeleted = !ToolState.blockDeleted; ToolState.save(); showSettings(s); }); y += 24;
+            subButton(s, "Favourites First: " + onOff(ToolState.favouritesFirst), x, y, 200,
+                    "Place favourite servers before other servers in managed lists.", b -> { ToolState.favouritesFirst = !ToolState.favouritesFirst; ToolState.save(); showSettings(s); });
+            subButton(s, "Auto-add Default: " + onOff(ToolState.autoAddDefault), x + 210, y, 200,
+                    "Choose whether Verified Search starts with Auto-add enabled.", b -> { ToolState.autoAddDefault = !ToolState.autoAddDefault; ToolState.save(); showSettings(s); }); y += 24;
+            subButton(s, "Auto-add Limit: " + autoAddLimitLabel(), x, y, 200,
+                    "Maximum servers Auto-add may save in one run. Cycle through the available limits.", b -> { cycleAutoAddLimit(); ToolState.save(); showSettings(s); });
+            subButton(s, "Finder Source: " + sourceLabel(s), x + 210, y, 200,
+                    "Discovery provider. Options include Auto, All Sources, BreakBlocks, Cornbread and MineScan.", b -> { cycleSource(s); showSettings(s); }); y += 24;
+            subButton(s, "BreakBlocks Age: " + breakBlocksAgeLabel(), x, y, 200,
+                    "Only request BreakBlocks records seen within this many days.", b -> { cycleBreakBlocksAge(s); showSettings(s); });
+            subButton(s, "Clear Added History (" + ToolState.addedHistoryCount() + ")", x + 210, y, 200,
+                    "Forget which servers were added before so they may appear in searches again.", b -> { ToolState.clearAddedHistory(); showSettings(s); }); y += 28;
+            subButton(s, "Server Seeker Stats", x, y, 200,
+                    "View clearly labelled added-history, added, deleted, favourite and blocked totals.", b -> showSeekerStats(s));
+            subButton(s, "Search Mode: " + (ToolState.quickSearch ? "Quick" : "Verified"), x + 210, y, 200,
+                    "Quick shows provider results immediately. Verified performs two direct server checks.", b -> { toggleSearchMode(s); showSettings(s); }); y += 28;
+            subButton(s, "Contribute Servers: " + onOff(ToolState.contributeVerifiedServers), x, y, 200,
+                    "Send public double-verified discoveries and stable successful joins to BreakBlocks. Private/LAN servers are saved locally only.", b -> {
+                ToolState.contributeVerifiedServers = !ToolState.contributeVerifiedServers;
+                ToolState.save();
+                BreakBlocksContributor.onSettingChanged();
+                showSettings(s);
+            });
+            subButton(s, "Contribution Stats", x + 210, y, 200,
+                    "View the BreakBlocks queue, allowance, outcomes, failures and contribution log tools.", b -> showContributionStats(s)); y += 24;
             ToolState.reloadBreakBlocksApiKey();
             addSubLabel(s, breakBlocksApiStatusLabel(s), x, y, 410); y += 24;
+            addSubLabel(s, "Contribution log: config/breakblocks-contributions.csv", x, y, 410); y += 24;
             addSubLabel(s, "Config key: breakBlocksApiKey=...", x, y, 260);
-            addSub(s, Reflection.makeButton("Back", x + 310, y, 100, 20, b -> { clearSubView(s); showMain(s); refreshStats(s); })); y += 24;
+            subButton(s, "Back", x + 310, y, 100,
+                    "Return to the Server Finder results.", b -> { clearSubView(s); showMain(s); refreshStats(s); }); y += 24;
             addSubLabel(s, "config/zazus-server-tool.properties", x, y, 410);
         } catch (Throwable t) { log("Could not open settings", t); clearSubView(s); showMain(s); }
+    }
+
+    private static void showSeekerStats(OverlayState s) {
+        try {
+            clearSubView(s); hideMain(s);
+            int cx = s.width / 2, x = cx - 210, y = 38;
+            addSubLabel(s, "Server Seeker Stats", x, y, 420); y += 30;
+            addSubLabel(s, "Added history: " + ToolState.addedHistoryCount(), x, y, 420); y += 23;
+            addSubLabel(s, "Addresses remembered so previously added servers can be skipped.", x, y, 420); y += 26;
+            addSubLabel(s, "Servers added: " + ToolState.addedCount, x, y, 205);
+            addSubLabel(s, "Servers deleted: " + ToolState.deletedCount, x + 215, y, 205); y += 26;
+            addSubLabel(s, "Favourite servers: " + ServerListBridge.countFavourites(s.client), x, y, 205);
+            addSubLabel(s, "Blocked servers: " + ToolState.blockedCount(), x + 215, y, 205); y += 30;
+            subButton(s, "Reset Added/Deleted Stats", x, y, 200,
+                    "Reset only the Servers added and Servers deleted counters.", b -> { ToolState.resetStats(); showSeekerStats(s); });
+            subButton(s, "Back", x + 320, y, 100,
+                    "Return to Server Seeker Settings.", b -> showSettings(s));
+        } catch (Throwable t) {
+            log("Could not open Server Seeker stats", t);
+            showSettings(s);
+        }
+    }
+
+    private static void showContributionStats(OverlayState s) {
+        try {
+            clearSubView(s); hideMain(s);
+            BreakBlocksContributor.ContributionSnapshot stats = BreakBlocksContributor.snapshot();
+            BreakBlocksRateBudget.Snapshot quota = stats.quota();
+            int cx = s.width / 2, x = cx - 220, y = 28;
+            addSubLabel(s, "BreakBlocks Contribution Stats", x, y, 440); y += 24;
+            String mode = quota.authenticated() ? "API key" : "Anonymous";
+            String reset = quota.resetSeconds() > 0 ? quota.resetSeconds() + "s" : "ready";
+            addSubLabel(s, "Mode: " + mode + "   Allowance: " + quota.remaining() + "/" + quota.limit()
+                    + "   Reset: " + reset + (quota.paused() ? "   PAUSED" : ""), x, y, 440); y += 23;
+            addSubLabel(s, "Session — Accepted " + stats.acceptedSession() + "  Refreshing " + stats.refreshingSession()
+                    + "  429s " + stats.rateLimitedSession() + "  Failed " + stats.failedSession(), x, y, 440); y += 23;
+            addSubLabel(s, "Overall — Accepted " + stats.acceptedOverall() + "  Refreshing " + stats.refreshingOverall()
+                    + "  429s " + stats.rateLimitedOverall() + "  Failed " + stats.failedOverall(), x, y, 440); y += 23;
+            String current = stats.currentEndpoint().isBlank() ? "None" : stats.currentEndpoint();
+            addSubLabel(s, "Current: " + current + "   Failed awaiting retry: " + stats.failedPending(), x, y, 440); y += 25;
+
+            List<String> queued = stats.queued();
+            int pageSize = s.height >= 430 ? 8 : 5;
+            int pages = Math.max(1, (queued.size() + pageSize - 1) / pageSize);
+            s.contributionPage = Math.max(0, Math.min(s.contributionPage, pages - 1));
+            addSubLabel(s, "Pending queue: " + queued.size(), x, y, 440); y += 22;
+            int start = s.contributionPage * pageSize;
+            for (int i = 0; i < pageSize && start + i < queued.size(); i++) {
+                String endpoint = queued.get(start + i);
+                addSubLabel(s, (endpoint.equals(stats.currentEndpoint()) ? "▶ " : "") + endpoint,
+                        x, y, 440);
+                y += 22;
+            }
+
+            int navY = Math.max(y + 2, s.height - 72);
+            addSub(s, Reflection.makeButton("< Previous", x, navY, 100, 20, b -> {
+                if (s.contributionPage > 0) s.contributionPage--;
+                showContributionStats(s);
+            }));
+            addSubLabel(s, "Page " + (s.contributionPage + 1) + "/" + pages, x + 105, navY, 90);
+            addSub(s, Reflection.makeButton("Next >", x + 200, navY, 90, 20, b -> {
+                if (s.contributionPage + 1 < pages) s.contributionPage++;
+                showContributionStats(s);
+            }));
+            addSub(s, Reflection.makeButton("Refresh", x + 300, navY, 140, 20, b -> showContributionStats(s)));
+
+            int controlsY = navY + 24;
+            addSub(s, Reflection.makeButton("Retry Failed (" + stats.failedPending() + ")", x, controlsY, 140, 20, b -> {
+                int retried = BreakBlocksContributor.retryFailed();
+                s.contributionMessage = retried == 0 ? "No failed contributions to retry." : "Queued " + retried + " failed contribution(s).";
+                showContributionStats(s);
+            }));
+            addSub(s, Reflection.makeButton("Open Log Folder", x + 144, controlsY, 140, 20, b -> {
+                s.contributionMessage = BreakBlocksContributor.openLogFolder()
+                        ? "Opened the Minecraft config folder." : "Could not open the config folder.";
+                showContributionStats(s);
+            }));
+            String clearLabel = s.confirmClearContributionStats ? "Confirm Clear Stats" : "Clear Statistics";
+            addSub(s, Reflection.makeButton(clearLabel, x + 288, controlsY, 152, 20, b -> {
+                if (s.confirmClearContributionStats) {
+                    BreakBlocksContributor.clearStatistics();
+                    s.confirmClearContributionStats = false;
+                    s.contributionMessage = "Contribution statistics cleared; queue preserved.";
+                } else {
+                    s.confirmClearContributionStats = true;
+                    s.contributionMessage = "Press Confirm Clear Stats to continue.";
+                }
+                showContributionStats(s);
+            }));
+            int bottomY = controlsY + 24;
+            addSubLabel(s, s.contributionMessage.isBlank() ? "Queue continues in the background while Minecraft is open."
+                    : s.contributionMessage, x, bottomY, 330);
+            addSub(s, Reflection.makeButton("Back", x + 340, bottomY, 100, 20, b -> {
+                s.confirmClearContributionStats = false;
+                s.contributionMessage = "";
+                clearSubView(s);
+                showSettings(s);
+            }));
+        } catch (Throwable t) {
+            log("Could not open contribution stats", t);
+            clearSubView(s);
+            showSettings(s);
+        }
     }
 
     private static void toggleSearchMode(OverlayState s) {
@@ -1012,14 +1170,10 @@ public final class ServerFinderClient {
     }
 
     private static void refreshStats(OverlayState s) {
-        Reflection.setButtonText(s.statsButton, statsLabel(s));
-        Reflection.setButtonText(s.blockedButton, "Blocked " + ToolState.blockedCount());
+        Reflection.setButtonText(s.blockedButton, blockedLabel());
     }
 
-    private static String statsLabel(OverlayState s) {
-        int favs = ServerListBridge.countFavourites(s.client);
-        return "H" + ToolState.addedHistoryCount() + " A" + ToolState.addedCount + " D" + ToolState.deletedCount + " F" + favs;
-    }
+    private static String blockedLabel() { return "Blocked Servers (" + ToolState.blockedCount() + ")"; }
     private static String sortLabel(OverlayState s) { return "Sort: " + SORT_LABELS[s.sortIndex]; }
     private static String autoAddLimitLabel() { return ToolState.autoAddLimit <= 0 ? "Unlimited" : String.valueOf(ToolState.autoAddLimit); }
     private static void cycleAutoAddLimit() {
@@ -1227,16 +1381,17 @@ public final class ServerFinderClient {
         final EnumMap<Provider, Integer> providerDuplicateOnlyStreaks = new EnumMap<>(Provider.class);
         final EnumSet<Provider> disabledProviders = EnumSet.noneOf(Provider.class);
         boolean open, loading, autoAdd, exhausted, apiKeyDisabledForSession, apiKeyAcceptedThisSession;
-        int versionIndex, minIndex, maxIndex, sortIndex, serverTypeIndex, sourceIndex, autoAddedThisSession, blockedPage, resultPage, allSourceCursor;
+        int versionIndex, minIndex, maxIndex, sortIndex, serverTypeIndex, sourceIndex, autoAddedThisSession, blockedPage, resultPage, allSourceCursor, contributionPage;
         long autoAddScheduleToken, searchGeneration;
         int breakBlocksCurrentPage, breakBlocksApiResults, breakBlocksProbeAttempts, breakBlocksStatusReplies, breakBlocksLiveVerified;
         int breakBlocksDnsFailures, breakBlocksUnreachableFailures, breakBlocksTimeoutFailures, breakBlocksProbeErrors, breakBlocksIncompatibleReplies;
         int statusProbeAttempts, statusFirstPasses, statusSecondPasses, liveVerified, statusRejected;
         int statusDnsFailures, statusUnreachableFailures, statusTimeoutFailures, statusProbeErrors;
-        String breakBlocksLastProbeFailure = "", lastProbeFailure = "";
+        String breakBlocksLastProbeFailure = "", lastProbeFailure = "", contributionMessage = "";
+        boolean confirmClearContributionStats;
         Provider activeProvider;
         List<ServerRecord> results = List.of();
-        Object versionButton, minButton, maxButton, serverTypeButton, findButton, autoButton, resetButton, closeButton, sortButton, settingsButton, blockedButton, statsButton, statusButton;
+        Object versionButton, minButton, maxButton, serverTypeButton, findButton, autoButton, resetButton, closeButton, sortButton, settingsButton, blockedButton, statusButton;
         Object previousResultsButton, resultPageButton, nextResultsButton;
         OverlayState(Object client, Object screen, int width, int height) { this.client = client; this.screen = screen; this.width = width; this.height = height; }
     }

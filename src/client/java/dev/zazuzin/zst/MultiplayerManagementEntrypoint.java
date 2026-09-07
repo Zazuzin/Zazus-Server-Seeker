@@ -13,6 +13,7 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
 
     @Override
     public void onInitializeClient() {
+        BreakBlocksContributor.initialize();
         try {
             registerGlobalAfterInit();
             System.out.println("[Zazu's Server Seeker] Multiplayer management hook registered.");

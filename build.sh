@@ -9,7 +9,7 @@ MC_VERSION="$(property minecraft_version)"
   echo "mod_version and minecraft_version must be set in gradle.properties." >&2
   exit 1
 }
-OUT="$ROOT/build/libs/Zazus-Server-Seeker-${VERSION}+mc${MC_VERSION}.jar"
+OUT="$ROOT/build/libs/Zazus-Server-Seeker-${VERSION}-mc${MC_VERSION}.jar"
 TMP="$ROOT/build/local-javac"
 
 if ! command -v javac >/dev/null || ! command -v jar >/dev/null; then

@@ -74,6 +74,7 @@ public final class WhitelistAutoDeleteEntrypoint implements ClientModInitializer
         if (normalized.isBlank()) return;
         lastAttemptedEndpoint = normalized;
         lastAttemptAt = System.currentTimeMillis();
+        ServerTabsEntrypoint.noteConnectionAttempt(normalized);
     }
 
     static void clearAttempt() {

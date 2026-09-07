@@ -10,7 +10,7 @@ grep -q 'GNU GENERAL PUBLIC LICENSE' "$ROOT/LICENSE" || { echo "GPL-3.0 license 
 grep -q '"license": "GPL-3.0-only"' "$ROOT/src/main/resources/fabric.mod.json" || {
   echo "Fabric GPL-3.0-only metadata is missing" >&2; exit 1;
 }
-JAR="${1:-$ROOT/build/libs/Zazus-Server-Seeker-${VERSION}+mc${MC_VERSION}.jar}"
+JAR="${1:-$ROOT/build/libs/Zazus-Server-Seeker-${VERSION}-mc${MC_VERSION}.jar}"
 [[ -f "$JAR" ]] || { echo "JAR not found: $JAR" >&2; exit 1; }
 
 grep -q 'undoLastDeleteButton' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
@@ -130,6 +130,12 @@ grep -q 'SCREEN_ROUTES.put(categoryScreen, new ScreenRoute(view, hub))' "$ROOT/s
 grep -q 'returnToCategoryHub(state)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Category-to-hub navigation is missing" >&2; exit 1;
 }
+grep -q 'refreshCategoryHubCounts(hubScreen)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Category hub counters are not refreshed on return" >&2; exit 1;
+}
+grep -A15 'private static void refreshCategoryHubCounts' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" | grep -q 'ServerListAccess.reloadCategory(hub.client, hub.screen, null)' || {
+  echo "Category hub count refresh does not reload servers.dat" >&2; exit 1;
+}
 grep -q 'state.layoutDirty = true' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Live window-resize layout invalidation is missing" >&2; exit 1;
 }
@@ -142,6 +148,15 @@ grep -q 'centeredRowLeft' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerMana
 grep -q 'ServerCategoryStore.promoteVerified(sb.endpoint)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
   echo "Unfavourite-to-Servers promotion rule is missing" >&2; exit 1;
 }
+grep -q 'ServerTabsEntrypoint.noteConnectionAttempt(normalized)' "$ROOT/src/client/java/dev/zazuzin/zst/WhitelistAutoDeleteEntrypoint.java" || {
+  echo "Connection attempts are not shared with scanned-server promotion" >&2; exit 1;
+}
+grep -A35 'private static void onPlayJoin' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" | grep -q 'currentServerEndpoint(client)' || {
+  echo "Stable-join promotion does not prefer Minecraft's live endpoint" >&2; exit 1;
+}
+if grep -A45 'private static void onPlayJoin' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" | grep -q 'final boolean scannedCandidate'; then
+  echo "Stable-join promotion still snapshots stale category state" >&2; exit 1;
+fi
 grep -q 'setServerName(sb.serverData, updated)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
   echo "Unfavourite does not clear the live row's stale star" >&2; exit 1;
 }
@@ -268,6 +283,90 @@ grep -q 'breakBlocksDnsFailures' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFi
 grep -q 'breakBlocksProbeAttempts' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
   echo "BreakBlocks probe diagnostics are missing" >&2; exit 1;
 }
+grep -q 'BreakBlocksContributor.submit(record.address(), record.port(),' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
+  echo "Verified discoveries are not submitted to the BreakBlocks contribution queue" >&2; exit 1;
+}
+grep -q 'MAX_REFRESH_RETRIES = 3' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksContributor.java" || {
+  echo "BreakBlocks contribution retry limit is incorrect" >&2; exit 1;
+}
+grep -q 'REFRESH_DELAY_SECONDS = 10L' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksContributor.java" || {
+  echo "BreakBlocks refreshing delay is not 10 seconds" >&2; exit 1;
+}
+grep -q 'Retry-After' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksContributor.java" || {
+  echo "BreakBlocks contribution queue does not respect Retry-After" >&2; exit 1;
+}
+grep -q 'contributeVerifiedServers = bool' "$ROOT/src/client/java/dev/zazuzin/zst/ToolState.java" || {
+  echo "BreakBlocks contribution preference is not persistent" >&2; exit 1;
+}
+grep -q 'static boolean contributeVerifiedServers = true' "$ROOT/src/client/java/dev/zazuzin/zst/ToolState.java" || {
+  echo "BreakBlocks contributions are not enabled by default" >&2; exit 1;
+}
+grep -q 'contributeVerifiedServers = bool(p, "contributeVerifiedServers", true)' "$ROOT/src/client/java/dev/zazuzin/zst/ToolState.java" || {
+  echo "BreakBlocks contribution migration default is not enabled" >&2; exit 1;
+}
+grep -q 'breakblocks-contributions.csv' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksContributor.java" || {
+  echo "BreakBlocks contribution audit log is missing" >&2; exit 1;
+}
+grep -q 'timestamp_utc,server,attempt,result,http_status,detail' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksContributor.java" || {
+  echo "BreakBlocks contribution audit log header is missing" >&2; exit 1;
+}
+grep -q 'BreakBlocksRateBudget.recordSearchRequest(authenticated)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
+  echo "BreakBlocks discovery requests are not included in the shared allowance" >&2; exit 1;
+}
+grep -q 'BreakBlocksRateBudget.contributionDelayMillis' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksContributor.java" || {
+  echo "BreakBlocks contributions do not wait for shared allowance" >&2; exit 1;
+}
+grep -q 'X-RateLimit-Remaining' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksRateBudget.java" || {
+  echo "BreakBlocks remaining allowance header is not handled" >&2; exit 1;
+}
+grep -q 'X-RateLimit-Reset' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksRateBudget.java" || {
+  echo "BreakBlocks reset header is not handled" >&2; exit 1;
+}
+grep -q 'reportedLimit / 2' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksRateBudget.java" || {
+  echo "BreakBlocks rate-limit estimate is not reduced after HTTP 429" >&2; exit 1;
+}
+grep -q 'breakblocks-contribution-queue.txt' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksContributor.java" || {
+  echo "Persistent BreakBlocks contribution queue is missing" >&2; exit 1;
+}
+grep -q 'ArrayDeque<Task> READY' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksContributor.java" || {
+  echo "Central FIFO contribution queue is missing" >&2; exit 1;
+}
+grep -q 'PriorityQueue<Task> DELAYED' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksContributor.java" || {
+  echo "Delayed contribution follow-up queue is missing" >&2; exit 1;
+}
+grep -q 'DELAYED.peek().readyAtMs() <= now) task = DELAYED.remove()' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksContributor.java" || {
+  echo "Due contribution follow-ups do not take priority over untouched backlog" >&2; exit 1;
+}
+grep -q 'boolean quotaPauseLogged' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksContributor.java" || {
+  echo "Continuous quota pauses are not log-deduplicated" >&2; exit 1;
+}
+grep -q 'Contribution Stats' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
+  echo "Contribution Stats settings view is missing" >&2; exit 1;
+}
+grep -q 'Server Seeker Stats' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
+  echo "Server Seeker Stats settings view is missing" >&2; exit 1;
+}
+grep -q 'Reflection.setTooltip' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
+  echo "Finder and settings tooltips are missing" >&2; exit 1;
+}
+grep -q 'Retry Failed (' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
+  echo "Contribution retry control is missing" >&2; exit 1;
+}
+grep -q 'breakblocks-contribution-failed.txt' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksContributor.java" || {
+  echo "Failed contribution persistence is missing" >&2; exit 1;
+}
+grep -q 'SUCCESS_COOLDOWN_MS = TimeUnit.HOURS.toMillis(6L)' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksContributor.java" || {
+  echo "Six-hour successful contribution cooldown is missing" >&2; exit 1;
+}
+grep -q 'private-lan-servers.txt' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksContributor.java" || {
+  echo "Private/LAN local server list is missing" >&2; exit 1;
+}
+grep -q 'isPrivateOrLan(parsed.host())' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksContributor.java" || {
+  echo "Private/LAN endpoints are not separated from BreakBlocks contributions" >&2; exit 1;
+}
+grep -q 'BreakBlocksContributor.submitConnected(candidate)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Stable manual/Direct Connect contribution hook is missing" >&2; exit 1;
+}
 
 # Whitelist deletion must remove the live Multiplayer ServerList before
 # returning to the Servers tab, otherwise that stale screen can resurrect the row.
@@ -294,7 +393,7 @@ grep -q 'enum Tab { FAVOURITES, SERVERS, SCANNED, RECENT }' "$ROOT/src/client/ja
 grep -q 'MAX_RECENT = 5' "$ROOT/src/client/java/dev/zazuzin/zst/ServerCategoryStore.java" || {
   echo "Recent Servers history is not capped at five" >&2; exit 1;
 }
-grep -q 'recordSuccessfulJoin(candidate)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+grep -q 'recordSuccessfulJoin(recordedEndpoint)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Stable joins are not being recorded in Recent Servers" >&2; exit 1;
 }
 grep -q 'Recent Servers (' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
@@ -387,6 +486,18 @@ grep -q '☆ Favourite Server' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabs
 grep -q '★ Unfavourite Server' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Pause-menu Unfavourite Server state is missing" >&2; exit 1;
 }
+grep -q 'Server: ' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Pause-menu current-server address is missing" >&2; exit 1;
+}
+grep -q 'Copy IP' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Pause-menu Copy IP control is missing" >&2; exit 1;
+}
+grep -q 'setClipboard' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Pause-menu clipboard integration is missing" >&2; exit 1;
+}
+grep -q 'RuntimeAccess.width(font, fullAddressLabel)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Pause-menu address box is not sized to its text" >&2; exit 1;
+}
 grep -q 'toggleFavouriteEndpoint' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
   echo "Pause-menu favourite persistence path is missing" >&2; exit 1;
 }
@@ -452,12 +563,14 @@ grep -q 'returnToCategoryHub(state)' "$ROOT/src/client/java/dev/zazuzin/zst/Serv
 grep -q 'visibleAndContains(state.undoButton' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || { echo "Undo click is not routed through the Multiplayer interceptor" >&2; exit 1; }
 if grep -qE 'Protected Server|toggleProtected|P✓|isProtectedData' "$ROOT/src/client/java/dev/zazuzin/zst/"*.java; then echo "Removed protection feature is still present" >&2; exit 1; fi
 
-python3 - "$JAR" "$VERSION" <<'PY'
+EXPECTED_CLASS_MAJOR="${EXPECTED_CLASS_MAJOR:-65}"
+python3 - "$JAR" "$VERSION" "$EXPECTED_CLASS_MAJOR" <<'PY'
 import json, struct, sys, zipfile
 from pathlib import PurePosixPath
 
 jar = sys.argv[1]
 expected_version = sys.argv[2]
+expected_major = int(sys.argv[3])
 expected_entrypoints = {
     "dev.zazuzin.zst.MultiplayerManagementEntrypoint",
     "dev.zazuzin.zst.WhitelistAutoDeleteEntrypoint",
@@ -487,8 +600,8 @@ with zipfile.ZipFile(jar) as z:
         if len(data) < 8 or data[:4] != b"\xca\xfe\xba\xbe":
             raise SystemExit(f"Invalid class file: {name}")
         major = struct.unpack(">H", data[6:8])[0]
-        if major != 65:
-            raise SystemExit(f"{name} targets class-file major {major}, expected Java 21 (65)")
+        if major != expected_major:
+            raise SystemExit(f"{name} targets class-file major {major}, expected {expected_major}")
 
     forbidden = {
         "dev/zazuzin/zst/CoreUiStripper.class",
@@ -499,6 +612,15 @@ with zipfile.ZipFile(jar) as z:
 
 print(f"Verified {len(classes)} Java 21 class files and Fabric metadata.")
 PY
+
+# Both BreakBlocks request paths must identify the packaged beta consistently.
+for source in ServerFinderClient BreakBlocksContributor; do
+  grep -q 'USER_AGENT = "ZazusServerSeeker/0.4.1-beta.1"' \
+    "$ROOT/src/client/java/dev/zazuzin/zst/${source}.java" || {
+    echo "$source User-Agent version mismatch" >&2
+    exit 1
+  }
+done
 
 # Verify optional BreakBlocks authentication is header-only and that anonymous
 # requests remain untouched.
@@ -636,7 +758,7 @@ public final class ProviderParsingTest {
         if (provider.headers().firstValue("Authorization").isPresent())
             throw new AssertionError("No-key provider unexpectedly received Authorization header");
         String ua = provider.headers().firstValue("User-Agent").orElse("");
-        if (!"ZazusServerSeeker/0.4.0-beta.1".equals(ua))
+        if (!"ZazusServerSeeker/0.4.1-beta.1".equals(ua))
             throw new AssertionError("Provider User-Agent version mismatch: " + ua);
 
         if (!"1.2.3.4".equals(ServerFinderClient.intToIpv4(16909060L)))
@@ -963,6 +1085,15 @@ public final class RuntimeRegressionTest {
         if (!ServerCategoryStore.isScanned(newEndpoint) || !ServerCategoryStore.isFavourite(newEndpoint)
                 || !ServerCategoryStore.isRecent(newEndpoint) || ServerCategoryStore.healthFailures(newEndpoint) != 1)
             throw new AssertionError("Edited endpoint did not inherit category metadata");
+
+        String joinedEndpoint = "joined-scanned.example:25565";
+        ServerCategoryStore.markScanned(joinedEndpoint);
+        WhitelistAutoDeleteEntrypoint.noteAttempt(joinedEndpoint);
+        if (!joinedEndpoint.equals(ServerTabsEntrypoint.recentAttemptEndpoint()))
+            throw new AssertionError("Connection attempt was not shared with stable-join promotion");
+        if (!ServerCategoryStore.promoteVerified(ServerTabsEntrypoint.recentAttemptEndpoint())
+                || ServerCategoryStore.isScanned(joinedEndpoint))
+            throw new AssertionError("Captured stable join did not promote the scanned endpoint");
 
         FakeMouseEvent mouse = new FakeMouseEvent();
         FakeClickable button = new FakeClickable();

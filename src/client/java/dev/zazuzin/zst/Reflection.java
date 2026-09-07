@@ -280,12 +280,32 @@ final class Reflection {
         throw new NoSuchMethodException("No supported Button builder found");
     }
 
+    static void setTooltip(Object widget, String text) {
+        if (widget == null || text == null || text.isBlank()) return;
+        try {
+            Class<?> tooltipClass = firstClass(
+                    "net.minecraft.client.gui.components.Tooltip",
+                    "net.minecraft.client.gui.tooltip.Tooltip");
+            Object component = literal(text);
+            Object tooltip = null;
+            for (Method method : tooltipClass.getMethods()) {
+                if (!Modifier.isStatic(method.getModifiers()) || !method.getName().equals("create")
+                        || method.getParameterCount() != 1) continue;
+                if (!method.getParameterTypes()[0].isAssignableFrom(component.getClass())) continue;
+                tooltip = method.invoke(null, component);
+                break;
+            }
+            if (tooltip == null) return;
+            Method setter = findCompatibleMethod(widget.getClass(), "setTooltip", tooltip);
+            if (setter != null) setter.invoke(widget, tooltip);
+        } catch (Throwable ignored) {}
+    }
+
     static void setButtonText(Object button, String text) {
         if (button == null) return;
         try {
             Object component = literal(text);
             Method m = findCompatibleMethod(button.getClass(), "setMessage", component);
-            if (m == null) m = findCompatibleMethod(button.getClass(), "setMessage", component);
             if (m != null) { m.invoke(button, component); return; }
             m = findCompatibleMethod(button.getClass(), "setText", component);
             if (m != null) m.invoke(button, component);
