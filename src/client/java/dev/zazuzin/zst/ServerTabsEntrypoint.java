@@ -26,7 +26,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
     private static final Map<Object, State> STATES = Collections.synchronizedMap(new WeakHashMap<>());
     private static final Map<Object, ScreenRoute> SCREEN_ROUTES = Collections.synchronizedMap(new WeakHashMap<>());
     private static final Map<String, Integer> SCANNED_HEALTH_FAILURES = new ConcurrentHashMap<>();
-    private static final Map<Object, Object> PAUSE_FAVOURITE_BUTTONS = Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Map<Object, List<Object>> PAUSE_MENU_WIDGETS = Collections.synchronizedMap(new WeakHashMap<>());
     /** Every button created by this entrypoint. Keeping weak identities lets us
      * hide/remove stale controls after JoinMultiplayerScreen re-initialises the
      * same screen object, preventing ghost Back/Refresh-era buttons. */
@@ -103,8 +103,8 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
 
     private static void onPauseMenuInit(Object client, Object screen, int width, int height) {
         try {
-            Object previous = PAUSE_FAVOURITE_BUTTONS.remove(screen);
-            if (previous != null) Reflection.removeWidget(screen, previous);
+            List<Object> previous = PAUSE_MENU_WIDGETS.remove(screen);
+            if (previous != null) previous.forEach(widget -> Reflection.removeWidget(screen, widget));
 
             String endpoint = currentConnectedEndpoint(client);
             if (endpoint.isBlank()) return;
@@ -112,7 +112,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
             String displayName = currentConnectedServerName(client);
             boolean favourite = MultiplayerManagementEntrypoint.isFavouriteEndpoint(client, endpoint);
             Object[] holder = new Object[1];
-            Object button = makeButton(pauseFavouriteLabel(favourite), 6, 6, 160, 20, ignored -> {
+            Object favouriteButton = makeButton(pauseFavouriteLabel(favourite), 6, 6, 160, 20, ignored -> {
                 try {
                     boolean nowFavourite = MultiplayerManagementEntrypoint.toggleFavouriteEndpoint(client, endpoint, displayName);
                     Reflection.setButtonText(holder[0], pauseFavouriteLabel(nowFavourite));
@@ -122,11 +122,35 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
                     System.err.println("[Zazu's Server Seeker] Pause-menu favourite toggle failed: " + root(t));
                 }
             });
-            holder[0] = button;
-            PAUSE_FAVOURITE_BUTTONS.put(screen, button);
-            Reflection.addWidget(screen, button);
+            holder[0] = favouriteButton;
+
+            Object font = RuntimeAccess.font(screen);
+            String fullAddressLabel = "Server: " + endpoint;
+            int maxAddressWidth = Math.max(80, Math.min(260, width - 12));
+            int addressWidth = Math.min(maxAddressWidth,
+                    Math.max(160, RuntimeAccess.width(font, fullAddressLabel) + 12));
+            String addressLabel = RuntimeAccess.trimToWidth(font, fullAddressLabel, addressWidth - 12);
+            Object addressDisplay = makeButton(addressLabel, 6, 30, addressWidth, 20, ignored -> {});
+            setActive(addressDisplay, false);
+            Reflection.setTooltip(addressDisplay, "Current server: " + endpoint);
+
+            Object copyButton = makeButton("Copy IP", 6, 54, 80, 20, pressed -> {
+                try {
+                    copyToClipboard(client, endpoint);
+                    Reflection.setButtonText(pressed, "Copied!");
+                    System.out.println("[Zazu's Server Seeker] Copied current server address to clipboard: " + endpoint);
+                } catch (Throwable t) {
+                    Reflection.setButtonText(pressed, "Copy failed");
+                    System.err.println("[Zazu's Server Seeker] Could not copy current server address: " + root(t));
+                }
+            });
+            Reflection.setTooltip(copyButton, "Copy " + endpoint + " to the clipboard");
+
+            List<Object> widgets = List.of(favouriteButton, addressDisplay, copyButton);
+            PAUSE_MENU_WIDGETS.put(screen, widgets);
+            for (Object widget : widgets) Reflection.addWidget(screen, widget);
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Seeker] Could not add pause-menu Favourite Server button: " + root(t));
+            System.err.println("[Zazu's Server Seeker] Could not add pause-menu server controls: " + root(t));
         }
     }
 
@@ -134,14 +158,31 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         return favourite ? "★ Unfavourite Server" : "☆ Favourite Server";
     }
 
+    private static void copyToClipboard(Object client, String text) throws Exception {
+        Object keyboard = Reflection.getField(client, "keyboardHandler", "keyboard", "keyboardManager");
+        if (keyboard == null) {
+            for (String getter : List.of("getKeyboardHandler", "getKeyboard", "getKeyboardManager")) {
+                keyboard = Reflection.invokeQuiet(client, getter);
+                if (keyboard != null) break;
+            }
+        }
+        if (keyboard == null) throw new NoSuchFieldException("Minecraft keyboard handler");
+        Reflection.invoke(keyboard, "setClipboard", text);
+    }
+
     static String currentConnectedEndpoint(Object client) {
         if (!connectedEndpoint.isBlank()) return connectedEndpoint;
+        String endpoint = currentServerEndpoint(client);
+        if (!endpoint.isBlank()) connectedEndpoint = endpoint;
+        return endpoint;
+    }
+
+    /** Reads Minecraft's live server data without consulting our connection cache. */
+    private static String currentServerEndpoint(Object client) {
         Object data = currentServerData(client);
         if (data == null) return "";
         try {
-            String endpoint = ServerFinderClient.ServerListBridge.serverEndpoint(data);
-            if (!endpoint.isBlank()) connectedEndpoint = endpoint;
-            return endpoint;
+            return ServerFinderClient.ServerListBridge.serverEndpoint(data);
         } catch (Throwable ignored) {
             return "";
         }
@@ -507,8 +548,33 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
 
     private static void returnToCategoryHub(State state) {
         if (state == null || state.hubScreen == null) return;
-        try { ScreenCompat.setScreen(state.client, state.hubScreen); }
+        try {
+            Object hubScreen = state.hubScreen;
+            ScreenCompat.setScreen(state.client, hubScreen);
+            // Every category owns a separate JoinMultiplayerScreen. Its parent
+            // hub therefore still holds the ServerList snapshot from when the
+            // category was opened. Reload that hub snapshot after returning so
+            // favourites, additions, deletions, restores and promotions are
+            // reflected in the category counters immediately.
+            Reflection.execute(state.client, () -> refreshCategoryHubCounts(hubScreen));
+        }
         catch (Throwable t) { logOnce(state, "Could not return to category hub", t); }
+    }
+
+    private static void refreshCategoryHubCounts(Object hubScreen) {
+        State hub = STATES.get(hubScreen);
+        if (hub == null) return;
+        try {
+            ServerListAccess.reloadCategory(hub.client, hub.screen, null);
+            captureFullRows(hub, false);
+            showHub(hub);
+            hub.layoutDirty = true;
+            applyLayout(hub);
+            updateButtons(hub);
+            System.out.println("[Zazu's Server Seeker] Refreshed category hub counts.");
+        } catch (Throwable t) {
+            logOnce(hub, "Could not refresh category hub counts", t);
+        }
     }
 
     private static Object newMultiplayerScreen(Class<?> type, Object parent) throws Exception {
@@ -1200,6 +1266,19 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         return "";
     }
 
+    /**
+     * Records the endpoint before Minecraft replaces Multiplayer with its
+     * Connect screen. The whitelist watcher sees every normal row, keyboard and
+     * Direct Connect attempt, so sharing that capture prevents a later JOIN
+     * event from accidentally reusing the previous server's address.
+     */
+    static void noteConnectionAttempt(String endpoint) {
+        String normalized = ServerListAccess.normalize(endpoint);
+        if (normalized.isBlank()) return;
+        activeAttemptEndpoint = normalized;
+        activeAttemptAt = System.currentTimeMillis();
+    }
+
     private static void captureConnectAttempt(Object connectScreen) {
         String core = RuntimeAccess.staticString(CORE_AUTO_JOIN, "lastAutoJoinEndpoint");
         boolean coreRunning = RuntimeAccess.staticBoolean(CORE_AUTO_JOIN, "joinInProgress", false);
@@ -1237,32 +1316,77 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
     }
 
     private static void onPlayJoin() {
-        String endpoint = activeAttemptEndpoint;
-        if (endpoint.isBlank()) {
-            String core = RuntimeAccess.staticString(CORE_AUTO_JOIN, "lastAutoJoinEndpoint");
-            if (!core.isBlank()) endpoint = core;
-        }
-        if (endpoint.isBlank()) endpoint = currentConnectedEndpoint(RuntimeAccess.minecraftInstance());
+        Object client = RuntimeAccess.minecraftInstance();
+        long now = System.currentTimeMillis();
+
+        // Minecraft's current ServerData is authoritative once PLAY begins.
+        // Attempt data remains a fallback because some compatible clients do
+        // not expose currentServerData early enough in the JOIN callback.
+        String liveEndpoint = currentServerEndpoint(client);
+        String attemptedEndpoint = activeAttemptAt != 0L
+                && now - activeAttemptAt >= 0L && now - activeAttemptAt <= ATTEMPT_CONTEXT_MS
+                ? activeAttemptEndpoint : "";
+        String coreEndpoint = RuntimeAccess.staticString(CORE_AUTO_JOIN, "lastAutoJoinEndpoint");
+        String selectedEndpoint = lastSelectedAt != 0L
+                && now - lastSelectedAt >= 0L && now - lastSelectedAt <= ATTEMPT_CONTEXT_MS
+                ? lastSelectedEndpoint : "";
+
+        String endpoint = firstPresent(liveEndpoint, attemptedEndpoint, coreEndpoint, selectedEndpoint);
         if (endpoint.isBlank()) return;
 
         connectedEndpoint = endpoint;
         final String candidate = endpoint;
-        final boolean scannedCandidate = ServerCategoryStore.isScanned(candidate);
+        // Keep every reliable spelling of the destination. Minecraft may expose
+        // the live address with an explicit default port while servers.dat kept
+        // the original address without one; the captured attempt remains the
+        // exact key used by the Scanned category in that situation.
+        final List<String> promotionCandidates = distinctEndpoints(
+                attemptedEndpoint, selectedEndpoint, coreEndpoint, liveEndpoint);
         final long generation = ++playGeneration;
         System.out.println("[Zazu's Server Seeker] " + candidate
                 + " entered PLAY; verifying for 8 seconds before recording successful join.");
         CompletableFuture.delayedExecutor(STABLE_JOIN_MS, TimeUnit.MILLISECONDS).execute(() -> {
             if (playGeneration != generation) return;
-            ServerCategoryStore.recordSuccessfulJoin(candidate);
-            if (scannedCandidate && ServerCategoryStore.promoteVerified(candidate)) {
-                System.out.println("[Zazu's Server Seeker] Stable connection verified; moved to Servers: " + candidate);
+            String promotedEndpoint = "";
+            for (String possible : promotionCandidates) {
+                if (ServerCategoryStore.promoteVerified(possible)) {
+                    promotedEndpoint = possible;
+                    break;
+                }
             }
+            String recordedEndpoint = promotedEndpoint.isBlank() ? candidate : promotedEndpoint;
+            ServerCategoryStore.recordSuccessfulJoin(recordedEndpoint);
+            BreakBlocksContributor.submitConnected(candidate);
+            if (!promotedEndpoint.isBlank()) {
+                System.out.println("[Zazu's Server Seeker] Stable connection verified; moved to Servers: " + promotedEndpoint);
+            } else {
+                System.out.println("[Zazu's Server Seeker] Stable connection verified: " + candidate
+                        + " (already in Servers or not classified as Scanned).");
+            }
+            activeAttemptEndpoint = "";
+            activeAttemptAt = 0L;
         });
     }
 
     private static void onPlayDisconnect() {
         playGeneration++;
         connectedEndpoint = "";
+        activeAttemptEndpoint = "";
+        activeAttemptAt = 0L;
+    }
+
+    private static String firstPresent(String... values) {
+        for (String value : values) if (value != null && !value.isBlank()) return value;
+        return "";
+    }
+
+    private static List<String> distinctEndpoints(String... values) {
+        LinkedHashMap<String, String> endpoints = new LinkedHashMap<>();
+        for (String value : values) {
+            String normalized = ServerListAccess.normalize(value);
+            if (!normalized.isBlank()) endpoints.putIfAbsent(normalized, value.trim());
+        }
+        return List.copyOf(endpoints.values());
     }
 
     static int autoJoinEligibleTotal() {

@@ -13,6 +13,7 @@ final class ToolState {
     static boolean favouritesFirst = true;
     static boolean autoAddDefault = false;
     static boolean quickSearch = false;
+    static boolean contributeVerifiedServers = true;
     static int autoAddLimit = 25;
     static int versionIndex = 1;
     static int minIndex = 1;
@@ -56,6 +57,7 @@ final class ToolState {
         favouritesFirst = bool(p, "favouritesFirst", true);
         autoAddDefault = bool(p, "autoAddDefault", false);
         quickSearch = bool(p, "quickSearch", false);
+        contributeVerifiedServers = bool(p, "contributeVerifiedServers", true);
         autoAddLimit = integer(p, "autoAddLimit", 25);
         versionIndex = integer(p, "versionIndex", 1);
         minIndex = integer(p, "minIndex", 1);
@@ -79,7 +81,8 @@ final class ToolState {
 
         // Create/migrate the config so users always have an obvious blank API-key field to fill in.
         if (!configExisted || !p.containsKey("breakBlocksApiKey")
-                || !p.containsKey("breakBlocksMaxAgeDays") || !p.containsKey("quickSearch")) save();
+                || !p.containsKey("breakBlocksMaxAgeDays") || !p.containsKey("quickSearch")
+                || !p.containsKey("contributeVerifiedServers")) save();
         else restrictConfigPermissions();
     }
 
@@ -95,6 +98,7 @@ final class ToolState {
         p.setProperty("favouritesFirst", String.valueOf(favouritesFirst));
         p.setProperty("autoAddDefault", String.valueOf(autoAddDefault));
         p.setProperty("quickSearch", String.valueOf(quickSearch));
+        p.setProperty("contributeVerifiedServers", String.valueOf(contributeVerifiedServers));
         p.setProperty("autoAddLimit", String.valueOf(autoAddLimit));
         p.setProperty("versionIndex", String.valueOf(versionIndex));
         p.setProperty("minIndex", String.valueOf(minIndex));

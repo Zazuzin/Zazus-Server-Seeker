@@ -38,7 +38,7 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.withType(AbstractArchiveTask).configureEach {
     archiveBaseName = project.archives_base_name
-    archiveVersion = "${project.mod_version}+mc${project.minecraft_version}"
+    archiveVersion = "${project.mod_version}-mc${project.minecraft_version}"
 }
 
 java {
