@@ -43,7 +43,6 @@ The categories are views over Minecraft's normal `servers.dat`; the mod stores c
 - **Two-pass direct Minecraft status verification** before Finder results are displayed or Auto Added.
 - **Optional BreakBlocks API key support**; Cornbread and MineScan do not require a key.
 - **BreakBlocks contribution worker** that submits public double-verified discoveries and stable successful joins through one paced FIFO queue without blocking Minecraft.
-- **Private/LAN separation** that stores confirmed local endpoints in `config/private-lan-servers.txt` instead of sending them to BreakBlocks.
 - **Six-hour contribution cooldown** that avoids repeatedly submitting the same public endpoint from one installation.
 - **Adaptive BreakBlocks request pacing** shared by discovery and contributions. It respects reported rate-limit and reset headers, reserves capacity for Finder searches, and automatically scales when an API key provides a larger allowance.
 - **Persistent contribution queue** that restores unfinished BreakBlocks submissions when Minecraft is restarted.
