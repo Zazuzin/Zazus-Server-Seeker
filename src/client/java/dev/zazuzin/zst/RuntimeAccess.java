@@ -8,14 +8,7 @@ final class RuntimeAccess {
     private RuntimeAccess() {}
 
     static Field findField(Class<?> type, String name) {
-        for (Class<?> current = type; current != null; current = current.getSuperclass()) {
-            try {
-                Field field = current.getDeclaredField(name);
-                try { field.setAccessible(true); } catch (Throwable ignored) {}
-                return field;
-            } catch (NoSuchFieldException ignored) {}
-        }
-        return null;
+        return Reflection.findField(type, name);
     }
 
     static Object field(Object target, String name) {
@@ -54,29 +47,12 @@ final class RuntimeAccess {
     }
 
     static Method findMethod(Class<?> type, String name, int parameterCount) {
-        for (Class<?> current = type; current != null; current = current.getSuperclass()) {
-            for (Method method : current.getDeclaredMethods()) {
-                if (!method.getName().equals(name) || method.getParameterCount() != parameterCount) continue;
-                try { method.setAccessible(true); } catch (Throwable ignored) {}
-                return method;
-            }
-        }
-        return null;
+        return Reflection.findMethod(type, name, parameterCount);
     }
 
     static Object invoke(Object target, String name, Object... args) {
         if (target == null) return null;
-        for (Class<?> current = target.getClass(); current != null; current = current.getSuperclass()) {
-            for (Method method : current.getDeclaredMethods()) {
-                if (!method.getName().equals(name) || method.getParameterCount() != args.length) continue;
-                if (!compatible(method.getParameterTypes(), args)) continue;
-                try {
-                    method.setAccessible(true);
-                    return method.invoke(target, args);
-                } catch (Throwable ignored) {}
-            }
-        }
-        return null;
+        return Reflection.invokeQuiet(target, name, args);
     }
 
     static Object invokeStatic(String className, String name, Object... args) {

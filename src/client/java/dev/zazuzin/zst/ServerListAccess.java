@@ -215,6 +215,39 @@ final class ServerListAccess {
     }
 
     /**
+     * Updates every live ServerData copy for an endpoint on the current screen.
+     * Filtered category screens can retain both a source ServerList instance and
+     * separate row instances; leaving either copy starred lets the legacy-name
+     * migration add an endpoint straight back to Favourites on the next open.
+     */
+    static void synchronizeServerName(Object screen, String targetEndpoint, String updatedName) {
+        if (screen == null || targetEndpoint == null || targetEndpoint.isBlank()) return;
+        Set<Object> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+
+        Object source = serverListObject(screen);
+        if (source != null) {
+            for (Object data : serverDataList(source)) {
+                if (sameEndpoint(endpoint(data), targetEndpoint) && seen.add(data)) {
+                    try {
+                        ServerFinderClient.ServerListBridge.setServerName(data, updatedName);
+                    } catch (Throwable ignored) {}
+                }
+            }
+        }
+
+        for (List<Object> entries : serverEntryLists(screen)) {
+            for (Object entry : entries) {
+                Object data = serverData(entry);
+                if (data != null && sameEndpoint(endpoint(data), targetEndpoint) && seen.add(data)) {
+                    try {
+                        ServerFinderClient.ServerListBridge.setServerName(data, updatedName);
+                    } catch (Throwable ignored) {}
+                }
+            }
+        }
+    }
+
+    /**
      * Returns every mutable-looking list on the Multiplayer selection widget that
      * contains saved-server entry objects. Minecraft 26.2 can render from a
      * different backing list than the legacy onlineServers field, so category

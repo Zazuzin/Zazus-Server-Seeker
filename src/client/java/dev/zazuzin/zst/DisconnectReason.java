@@ -62,6 +62,24 @@ final class DisconnectReason {
                 || normalized.contains("disallowed request");
     }
 
+    /** Returns the useful disconnect detail without generic screen/button text. */
+    static String concise(String reason) {
+        if (reason == null || reason.isBlank()) return "Connection failed (Minecraft did not provide a reason).";
+        String best = "";
+        for (String part : reason.split("\\s*\\|\\s*")) {
+            String clean = part.replace('\n', ' ').replace('\r', ' ').replaceAll("\\s+", " ").trim();
+            if (clean.isBlank()) continue;
+            String lower = clean.toLowerCase(Locale.ROOT);
+            if (lower.equals("connection lost") || lower.equals("disconnected")
+                    || lower.equals("failed to connect to server") || lower.equals("failed to connect to the server")
+                    || lower.equals("back to server list") || lower.equals("back to title screen")
+                    || lower.equals("cancel") || lower.equals("done")) continue;
+            if (clean.length() > best.length()) best = clean;
+        }
+        if (best.isBlank()) return "Connection failed (Minecraft did not provide a reason).";
+        return best.length() <= 500 ? best : best.substring(0, 497) + "...";
+    }
+
     static String normalize(String reason) {
         if (reason == null) return "";
         return reason.toLowerCase(Locale.ROOT)

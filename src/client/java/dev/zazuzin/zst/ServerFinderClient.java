@@ -16,7 +16,7 @@ import java.util.function.*;
  * tolerate mapping/layout changes across the supported 26.2 client stack.
  */
 public final class ServerFinderClient {
-    private static final String USER_AGENT = "ZazusServerSeeker/0.4.1-beta.1";
+    private static final String USER_AGENT = ReleaseInfo.USER_AGENT;
     private static final String BREAKBLOCKS_API_URL = "https://api.breakblocks.com/api/v0.1/servers/find";
     private static final String CORNBREAD_API_URL = "https://api.cornbread2100.com/v1/servers/random";
     private static final String MINESCAN_API_URL = "https://data.minescan.xyz/servers/random";
@@ -566,10 +566,14 @@ public final class ServerFinderClient {
     }
 
     private static void acceptQuickCandidates(OverlayState s, Provider provider, List<ServerRecord> candidates) {
+        List<ServerRecord> accepted = new ArrayList<>();
         for (ServerRecord record : candidates) {
             if (!versionMatches(s, record) || ToolState.isBlocked(record.endpoint())) continue;
-            s.currentBatch.add(record.withSource(record.source() + " (unverified)"));
+            ServerRecord unverified = record.withSource(record.source() + " (unverified)");
+            s.currentBatch.add(unverified);
+            accepted.add(unverified);
         }
+        scheduleAuthChecks(s, accepted);
         System.out.println("[Zazu's Server Seeker] Quick Search accepted " + s.currentBatch.size()
                 + " unverified " + provider.label + " result(s) without status probing.");
         finishBatch(s);
@@ -758,6 +762,7 @@ public final class ServerFinderClient {
     }
 
     private static void acceptVerifiedCandidates(OverlayState s, Provider provider, List<ServerRecord> verified) {
+        scheduleAuthChecks(s, verified);
         if (ToolState.contributeVerifiedServers) {
             for (ServerRecord record : verified) {
                 BreakBlocksContributor.submit(record.address(), record.port(),
@@ -794,6 +799,17 @@ public final class ServerFinderClient {
             }
         }
         continueAfterLiveChecks(s);
+    }
+
+    private static void scheduleAuthChecks(OverlayState s, Collection<ServerRecord> records) {
+        if (!ToolState.authDetectionEnabled || records == null || records.isEmpty()) return;
+        for (ServerRecord record : records) {
+            if (record == null) continue;
+            ServerAuthService.ensureAsync(s.client, record.endpoint(), record.protocol(), () -> {
+                if (!s.open) return;
+                refreshRows(s);
+            });
+        }
     }
 
     private static void continueAfterLiveChecks(OverlayState s) {
@@ -888,7 +904,8 @@ public final class ServerFinderClient {
             if (has) {
                 ServerRecord r = s.results.get(resultIndex);
                 String verification = r.source().endsWith(" (unverified)") ? "UNVERIFIED" : "VERIFIED";
-                String text = shorten(r.endpoint() + " | " + r.version() + " | " + r.playersOnline()
+                String auth = ToolState.authDetectionEnabled ? ServerAuthService.shortLabel(r.endpoint()) : "OFF";
+                String text = shorten(r.endpoint() + " | AUTH:" + auth + " | " + r.version() + " | " + r.playersOnline()
                         + "/" + r.playersMax() + " | " + verification, 58);
                 Reflection.setButtonText(row, text);
                 try { Reflection.setButtonText(add, ServerListBridge.contains(s.client, r.endpoint()) ? "Saved" : "Add"); }
@@ -961,15 +978,24 @@ public final class ServerFinderClient {
             addSubLabel(s, "Last ping: " + blankDefault(r.lastPing(), "Unknown"), x, y, 440); y += 24;
             addSubLabel(s, "Modpack: " + blankDefault(r.modpack(), "None detected"), x, y, 440); y += 24;
             addSubLabel(s, "Plugins: " + (r.plugins().isEmpty() ? "None reported" : shorten(String.join(", ", r.plugins()), 62)), x, y, 440); y += 24;
-            addSubLabel(s, "Offline mode: " + (r.offlineMode() ? "Yes" : "No") + "   Blocked: " + (ToolState.isBlocked(r.endpoint()) ? "Yes" : "No"), x, y, 440); y += 28;
+            String authLabel = ToolState.authDetectionEnabled ? ServerAuthService.displayLabel(r.endpoint()) : "Disabled";
+            String checked = ToolState.authDetectionEnabled ? ServerAuthService.checkedLabel(r.endpoint()) : "N/A";
+            addSubLabel(s, "Authentication: " + authLabel + "   Checked: " + checked, x, y, 440); y += 24;
+            addSubLabel(s, "Provider offline-mode: " + (r.offlineMode() ? "Yes" : "No")
+                    + "   Blocked: " + (ToolState.isBlocked(r.endpoint()) ? "Yes" : "No"), x, y, 440); y += 28;
 
             boolean saved;
             try { saved = ServerListBridge.contains(s.client, r.endpoint()); } catch (Throwable t) { saved = false; }
-            if (saved) addSub(s, Reflection.makeButton("Remove Saved Server", x, y, 140, 20, b -> removeFromDetails(s, r)));
-            else addSub(s, Reflection.makeButton("Add Server", x, y, 100, 20, b -> addFromDetails(s, r)));
-            if (ToolState.isBlocked(r.endpoint())) addSub(s, Reflection.makeButton("Unblock Server", x + 146, y, 120, 20, b -> { ToolState.unblock(r.endpoint()); showDetails(s, index); }));
-            else addSub(s, Reflection.makeButton("Block Server", x + 146, y, 120, 20, b -> { ToolState.block(r.endpoint()); showDetails(s, index); }));
-            addSub(s, Reflection.makeButton("Back", x + 340, y, 100, 20, b -> { clearSubView(s); showMain(s); }));
+            if (saved) addSub(s, Reflection.makeButton("Remove Saved", x, y, 130, 20, b -> removeFromDetails(s, r)));
+            else addSub(s, Reflection.makeButton("Add Server", x, y, 130, 20, b -> addFromDetails(s, r)));
+            if (ToolState.isBlocked(r.endpoint())) addSub(s, Reflection.makeButton("Unblock", x + 135, y, 105, 20, b -> { ToolState.unblock(r.endpoint()); showDetails(s, index); }));
+            else addSub(s, Reflection.makeButton("Block", x + 135, y, 105, 20, b -> { ToolState.block(r.endpoint()); showDetails(s, index); }));
+            Object authButton = addSub(s, Reflection.makeButton(ServerAuthService.isChecking(r.endpoint()) ? "Checking…" : "Recheck Auth",
+                    x + 245, y, 95, 20, b -> {
+                        if (ServerAuthService.recheckAsync(s.client, r.endpoint(), r.protocol(), () -> showDetails(s, index))) showDetails(s, index);
+                    }));
+            Reflection.setBoolean(authButton, "active", ToolState.authDetectionEnabled && !ServerAuthService.isChecking(r.endpoint()));
+            addSub(s, Reflection.makeButton("Back", x + 345, y, 95, 20, b -> { clearSubView(s); showMain(s); }));
         } catch (Throwable t) {
             log("Could not show server details", t);
             clearSubView(s); showMain(s);
@@ -989,7 +1015,8 @@ public final class ServerFinderClient {
         try {
             clearSubView(s); hideMain(s);
             int cx = s.width / 2, x = cx - 210, y = 35;
-            addSubLabel(s, "Zazu's Server Seeker Settings", x, y, 420); y += 28;
+            addSubLabel(s, "Zazu's Server Seeker Settings", x, y, 420); y += 24;
+            addSubLabel(s, "Build: " + ReleaseInfo.VERSION + "   Minecraft: " + ReleaseInfo.MINECRAFT_VERSION, x, y, 420); y += 24;
             subButton(s, "Skip Added Before: " + onOff(ToolState.skipAddedHistory), x, y, 200,
                     "Skip addresses that Server Seeker has previously added to your server list.", b -> { ToolState.skipAddedHistory = !ToolState.skipAddedHistory; ToolState.save(); showSettings(s); });
             subButton(s, "Block Deleted: " + onOff(ToolState.blockDeleted), x + 210, y, 200,
@@ -1010,6 +1037,14 @@ public final class ServerFinderClient {
                     "View clearly labelled added-history, added, deleted, favourite and blocked totals.", b -> showSeekerStats(s));
             subButton(s, "Search Mode: " + (ToolState.quickSearch ? "Quick" : "Verified"), x + 210, y, 200,
                     "Quick shows provider results immediately. Verified performs two direct server checks.", b -> { toggleSearchMode(s); showSettings(s); }); y += 28;
+            subButton(s, "Auth Detection: " + onOff(ToolState.authDetectionEnabled), x, y, 200,
+                    "Classify servers asynchronously as Microsoft, Cracked or Unknown without delaying normal scan results.", b -> {
+                ToolState.authDetectionEnabled = !ToolState.authDetectionEnabled;
+                ToolState.save();
+                if (ToolState.authDetectionEnabled) scheduleAuthChecks(s, s.results);
+                showSettings(s);
+            });
+            addSubLabel(s, "Auth Recheck: " + ServerAuthService.RECHECK_DAYS + " days", x + 210, y, 200); y += 28;
             subButton(s, "Contribute Servers: " + onOff(ToolState.contributeVerifiedServers), x, y, 200,
                     "Send public double-verified discoveries and stable successful joins to BreakBlocks. Private/LAN servers are saved locally only.", b -> {
                 ToolState.contributeVerifiedServers = !ToolState.contributeVerifiedServers;
@@ -1431,6 +1466,7 @@ public final class ServerFinderClient {
             save(list);
             ToolState.recordAdded(record.endpoint(), record.version(), record.protocol());
             ServerCategoryStore.markScanned(record.endpoint());
+            ServerAuthService.ensureAsync(client, record.endpoint(), record.protocol(), null);
             return true;
         }
 

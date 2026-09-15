@@ -2,6 +2,7 @@ package dev.zazuzin.zst;
 
 import java.lang.reflect.*;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 /**
@@ -9,6 +10,10 @@ import java.util.function.Consumer;
  * GUI classes reduces breakage from mapping and API changes.
  */
 final class Reflection {
+    private static final Map<FieldKey, Optional<Field>> FIELD_CACHE = new ConcurrentHashMap<>();
+    private static final Map<MethodKey, Optional<Method>> METHOD_CACHE = new ConcurrentHashMap<>();
+    private static final Map<MethodKey, List<Method>> METHOD_CANDIDATE_CACHE = new ConcurrentHashMap<>();
+
     private Reflection() {}
 
     static Class<?> firstClass(String... names) throws ClassNotFoundException {
@@ -21,14 +26,17 @@ final class Reflection {
     }
 
     static Field findField(Class<?> type, String name) {
-        for (Class<?> c = type; c != null; c = c.getSuperclass()) {
-            try {
-                Field f = c.getDeclaredField(name);
-                try { f.setAccessible(true); } catch (Throwable ignored) {}
-                return f;
-            } catch (NoSuchFieldException ignored) {}
-        }
-        return null;
+        if (type == null || name == null) return null;
+        return FIELD_CACHE.computeIfAbsent(new FieldKey(type, name), key -> {
+            for (Class<?> c = key.type(); c != null; c = c.getSuperclass()) {
+                try {
+                    Field f = c.getDeclaredField(key.name());
+                    try { f.setAccessible(true); } catch (Throwable ignored) {}
+                    return Optional.of(f);
+                } catch (NoSuchFieldException ignored) {}
+            }
+            return Optional.empty();
+        }).orElse(null);
     }
 
     static Object getField(Object target, String... names) {
@@ -51,34 +59,57 @@ final class Reflection {
     }
 
     static Method findMethod(Class<?> type, String name, int parameterCount) {
-        for (Class<?> c = type; c != null; c = c.getSuperclass()) {
-            for (Method m : c.getDeclaredMethods()) {
-                if (m.getName().equals(name) && m.getParameterCount() == parameterCount) {
-                    try { m.setAccessible(true); } catch (Throwable ignored) {}
-                    return m;
+        if (type == null || name == null) return null;
+        return METHOD_CACHE.computeIfAbsent(new MethodKey(type, name, parameterCount), key -> {
+            for (Class<?> c = key.type(); c != null; c = c.getSuperclass()) {
+                for (Method m : c.getDeclaredMethods()) {
+                    if (m.getName().equals(key.name()) && m.getParameterCount() == key.parameterCount()) {
+                        try { m.setAccessible(true); } catch (Throwable ignored) {}
+                        return Optional.of(m);
+                    }
                 }
             }
-        }
+            for (Method m : key.type().getMethods()) {
+                if (m.getName().equals(key.name()) && m.getParameterCount() == key.parameterCount()) return Optional.of(m);
+            }
+            return Optional.empty();
+        }).orElse(null);
+    }
+
+    static Method findStaticCompatible(Class<?> type, String name, Object... args) {
         for (Method m : type.getMethods()) {
-            if (m.getName().equals(name) && m.getParameterCount() == parameterCount) return m;
+            if (!Modifier.isStatic(m.getModifiers()) || !m.getName().equals(name) || m.getParameterCount() != args.length) continue;
+            Class<?>[] p = m.getParameterTypes();
+            boolean ok = true;
+            for (int i = 0; i < p.length; i++) {
+                if (!compatible(p[i], args[i])) { ok = false; break; }
+            }
+            if (ok) return m;
         }
         return null;
     }
 
     static Method findCompatibleMethod(Class<?> type, String name, Object... args) {
-        for (Class<?> c = type; c != null; c = c.getSuperclass()) {
-            for (Method m : c.getDeclaredMethods()) {
-                if (!m.getName().equals(name) || m.getParameterCount() != args.length) continue;
-                Class<?>[] p = m.getParameterTypes();
-                boolean ok = true;
-                for (int i = 0; i < p.length; i++) {
-                    if (!compatible(p[i], args[i])) { ok = false; break; }
-                }
-                if (ok) {
-                    try { m.setAccessible(true); } catch (Throwable ignored) {}
-                    return m;
+        if (type == null || name == null) return null;
+        MethodKey key = new MethodKey(type, name, args.length);
+        List<Method> candidates = METHOD_CANDIDATE_CACHE.computeIfAbsent(key, ignored -> {
+            ArrayList<Method> methods = new ArrayList<>();
+            for (Class<?> c = type; c != null; c = c.getSuperclass()) {
+                for (Method m : c.getDeclaredMethods()) {
+                    if (!m.getName().equals(name) || m.getParameterCount() != args.length) continue;
+                    try { m.setAccessible(true); } catch (Throwable ignoredAccess) {}
+                    methods.add(m);
                 }
             }
+            return List.copyOf(methods);
+        });
+        for (Method m : candidates) {
+            Class<?>[] p = m.getParameterTypes();
+            boolean ok = true;
+            for (int i = 0; i < p.length; i++) {
+                if (!compatible(p[i], args[i])) { ok = false; break; }
+            }
+            if (ok) return m;
         }
         return null;
     }
@@ -405,4 +436,7 @@ final class Reflection {
         RuntimeAccess.registerEvent(event, listener);
         return listener;
     }
+
+    private record FieldKey(Class<?> type, String name) {}
+    private record MethodKey(Class<?> type, String name, int parameterCount) {}
 }

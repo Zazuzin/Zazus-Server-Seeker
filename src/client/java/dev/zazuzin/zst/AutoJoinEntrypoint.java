@@ -1,5 +1,7 @@
 package dev.zazuzin.zst;
 
+import dev.zazu.servernotes.client.ZazusServerNotesClient;
+import dev.zazu.servernotes.service.AutoJoinFailureNotes;
 import net.fabricmc.api.ClientModInitializer;
 
 import java.io.*;
@@ -287,6 +289,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
             int attemptNumber = ServerTabsEntrypoint.autoJoinAttemptedScannedCount();
             System.out.println("[Zazu's Server Seeker] Sequential Auto Join attempting: " + next.endpoint + " (attempt " + attemptNumber + ")");
         } else {
+            recordAutoJoinFailure(next.endpoint, "Could not start the Minecraft connection.");
             abandonCurrentAttempt("Could not start connection to " + next.endpoint + "; continuing.");
         }
     }
@@ -326,6 +329,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
             } else if (DisconnectReason.isRateLimited(reason)) {
                 handleRateLimit(client, screen, endpoint, reason);
             } else {
+                recordAutoJoinFailure(endpoint, reason);
                 returnToMultiplayer(client, screen);
             }
         }));
@@ -337,7 +341,20 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
         System.out.println("[Zazu's Server Seeker] Auto Join rate limit reached on " + endpoint
                 + " | reason: " + reason
                 + " | waiting " + seconds + " seconds before continuing.");
+        recordAutoJoinFailure(endpoint, reason);
         returnToMultiplayer(client, screen);
+    }
+
+    private static void recordAutoJoinFailure(String endpoint, String reason) {
+        try {
+            String concise = DisconnectReason.concise(reason);
+            AutoJoinFailureNotes.record(ZazusServerNotesClient.app().store(), endpoint, concise);
+            System.out.println("[Zazu's Server Seeker] Saved Auto Join failure note for " + endpoint
+                    + " | reason: " + concise);
+        } catch (Throwable t) {
+            System.err.println("[Zazu's Server Seeker] Could not save Auto Join failure note for "
+                    + endpoint + ": " + Reflection.unwrap(t));
+        }
     }
 
     private static void abandonCurrentAttempt(String message) {

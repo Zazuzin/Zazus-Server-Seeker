@@ -33,16 +33,29 @@ processResources {
 }
 
 tasks.withType(JavaCompile).configureEach {
-    options.release = 21
+    options.release = 25
 }
 
 tasks.withType(AbstractArchiveTask).configureEach {
     archiveBaseName = project.archives_base_name
-    archiveVersion = "${project.mod_version}-mc${project.minecraft_version}"
+    archiveVersion = "${project.mod_version}+mc${project.minecraft_version}"
 }
 
 java {
     withSourcesJar()
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
+}
+
+jar {
+    archiveFileName = "Zazus-Server-Seeker-${project.mod_version}-mc${project.minecraft_version}.jar"
+}
+
+tasks.register("writeClientCompileClasspath") {
+    dependsOn tasks.named("compileClientJava")
+    doLast {
+        def out = layout.buildDirectory.file("client-compile-classpath.txt").get().asFile
+        out.parentFile.mkdirs()
+        out.text = sourceSets.client.compileClasspath.files.collect { it.absolutePath }.join(System.lineSeparator()) + System.lineSeparator()
+    }
 }

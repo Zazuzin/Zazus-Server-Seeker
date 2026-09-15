@@ -35,7 +35,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /** Sends locally verified discoveries to BreakBlocks without blocking Minecraft. */
 final class BreakBlocksContributor {
     private static final String BASE_URL = "https://api.breakblocks.com/api/v0.1/status/ping/";
-    private static final String USER_AGENT = "ZazusServerSeeker/0.4.1-beta.1";
+    private static final String USER_AGENT = ReleaseInfo.USER_AGENT;
     private static final Path AUDIT_LOG = ToolState.configDir().resolve("breakblocks-contributions.csv");
     private static final Path PENDING_FILE = ToolState.configDir().resolve("breakblocks-contribution-queue.txt");
     private static final Path FAILED_FILE = ToolState.configDir().resolve("breakblocks-contribution-failed.txt");
