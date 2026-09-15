@@ -11,4 +11,4 @@ For Finder problems, include the selected version, player range, server type, so
 
 For crashes, include the complete crash report and `latest.log`. Screenshots alone usually do not contain the underlying exception.
 
-Open support requests and bug reports at [GitHub Issues](https://github.com/Zazuzin/Zazus-Server-Scanner/issues).
+Open support requests and bug reports at [GitHub Issues](https://github.com/Zazuzin/Zazus-Server-Seeker/issues).

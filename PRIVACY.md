@@ -12,14 +12,19 @@ Private, loopback and LAN endpoints are never submitted to BreakBlocks. If one p
 
 Candidates are checked using the standard Minecraft Java status protocol. Connecting or status-checking a server reveals your public IP address to that server in the same way that Minecraft's normal multiplayer screen does.
 
+When **Auth Detection** is enabled, Server Seeker may also open a short-lived Minecraft login-phase connection to classify the public endpoint as Microsoft-authenticated, cracked/offline, or unknown. The probe uses a generated `ZazuAuth_...` username, does not use your Minecraft username, Microsoft account, password or access token, and disconnects before Minecraft reaches normal configuration/play. The destination server can still see the probe connection and your public IP address in its connection logs. Authentication results are cached locally in `config/zazus-server-auth.properties` for 14 days unless you manually request a recheck.
+
 If configured, a BreakBlocks API key is sent only to BreakBlocks in an `Authorization: Bearer` header. It is not placed in request URLs or intentionally written to logs.
 
 ## Local data
 
 The mod stores settings, category membership, favourites, recent servers, health state and server-management history under the Minecraft instance's `config/` directory. BreakBlocks contribution attempts and results are written to `config/breakblocks-contributions.csv`. Unfinished contribution endpoints are stored in `config/breakblocks-contribution-queue.txt` so they can resume after restarting Minecraft, failed endpoints awaiting an optional retry are stored in `config/breakblocks-contribution-failed.txt`, and successful contributions are held on a local six-hour cooldown in `config/breakblocks-contribution-cooldowns.txt`. Confirmed private and LAN endpoints are stored separately in `config/private-lan-servers.txt` and are not submitted. These files never contain the API key. Minecraft stores saved server entries in its normal `servers.dat` file. Automatic deletion recovery may create local backups of `servers.dat`.
 
+
+Server Notes stores per-server notes, tags, Important state, saved coordinates/dimensions and historical player records locally in `config/zazus-server-notes/server-profiles.json`. Player records may contain usernames and UUIDs observed in the connected server's live player list; the local player's own account is excluded by the tracking logic. The file uses a local `.bak` backup and may preserve a corrupt copy during recovery. Server Notes data is not submitted to BreakBlocks or the other Finder providers.
+
 No local configuration or server history is bundled with official source or binary releases.
 
 ## Removing data
 
-Remove the mod and its `config/zazus-server-tool.properties`, `config/zazus-server-tabs.properties`, `config/breakblocks-contribution-*`, `config/breakblocks-contributions.csv`, `config/private-lan-servers.txt` and backup directory to delete mod-owned local data. Minecraft's `servers.dat` remains under the instance directory unless you remove it separately.
+Remove the mod and its `config/zazus-server-tool.properties`, `config/zazus-server-tabs.properties`, `config/zazus-server-auth.properties`, `config/breakblocks-contribution-*`, `config/breakblocks-contributions.csv`, `config/private-lan-servers.txt`, `config/zazus-server-notes/` and backup directory to delete mod-owned local data. Minecraft's `servers.dat` remains under the instance directory unless you remove it separately.

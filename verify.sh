@@ -12,6 +12,19 @@ grep -q '"license": "GPL-3.0-only"' "$ROOT/src/main/resources/fabric.mod.json" |
 }
 JAR="${1:-$ROOT/build/libs/Zazus-Server-Seeker-${VERSION}-mc${MC_VERSION}.jar}"
 [[ -f "$JAR" ]] || { echo "JAR not found: $JAR" >&2; exit 1; }
+JAR="$(cd "$(dirname "$JAR")" && pwd)/$(basename "$JAR")"
+
+# Minecraft 26.2's development artifact is already non-obfuscated. Applying
+# Mojang mappings or remapJar makes Loom reject the build configuration.
+if grep -q 'officialMojangMappings' "$ROOT/build.gradle"; then
+  echo "Minecraft 26.2 build must not configure Mojang mappings" >&2; exit 1
+fi
+if grep -q 'remapJar' "$ROOT/build.gradle"; then
+  echo "Minecraft 26.2 build must package the normal jar task" >&2; exit 1
+fi
+grep -q '^jar {' "$ROOT/build.gradle" || {
+  echo "Minecraft 26.2 release jar task is not configured" >&2; exit 1;
+}
 
 grep -q 'undoLastDeleteButton' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Undo Last Delete is not category-managed" >&2; exit 1;
@@ -28,24 +41,137 @@ grep -q 'changeResultPage(s, 1)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFi
 grep -q 'for (ServerRecord record : s.results) accumulated.put' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
   echo "Finder does not retain verified results between batches" >&2; exit 1;
 }
-grep -q 'listBottom = Math.min(listBottom, footerTop - 4)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+grep -Eq 'listBottom = Math.min\(listBottom, footerTop - 4\)|cachedListBottom = Math.min\(rawBottom, vanillaFooterTop\(state\) - 4\)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
   echo "Per-server controls are not constrained above Minecraft's footer" >&2; exit 1;
 }
 
+# Performance regression guards added in beta.5.
+grep -q 'FIELD_CACHE = new ConcurrentHashMap' "$ROOT/src/client/java/dev/zazuzin/zst/Reflection.java" || {
+  echo "Reflection field cache is missing" >&2; exit 1;
+}
+grep -q 'METHOD_CANDIDATE_CACHE = new ConcurrentHashMap' "$ROOT/src/client/java/dev/zazuzin/zst/Reflection.java" || {
+  echo "Reflection method cache is missing" >&2; exit 1;
+}
+grep -q 'SAVED_REFRESH_INTERVAL_MS = 500L' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Saved-server maintenance throttling is missing" >&2; exit 1;
+}
+grep -q 'lastAuthTooltip' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Row tooltip change cache is missing" >&2; exit 1;
+}
+grep -q 'if (ticksUntilPoll-- > 0) return;' "$ROOT/src/client/java/dev/zazu/servernotes/service/PlayerTrackingService.java" || {
+  echo "Server Notes player polling throttle is missing" >&2; exit 1;
+}
+
+grep -q 'b -> recheckAuth(state, sb)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Saved-server auth control is not wired to manual recheck" >&2; exit 1;
+}
+grep -q 'visibleAndContains(buttons.auth, x, y)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Saved-server auth control is missing from row mouse interception" >&2; exit 1;
+}
+grep -q 'ServerAuthService.recheckAsync' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Manual auth recheck does not call ServerAuthService" >&2; exit 1;
+}
+grep -q 'Component.literal("Copy")' "$ROOT/src/client/java/dev/zazu/servernotes/ui/ServerNotesScreen.java" || {
+  echo "Integrated Server Notes player-name Copy control is missing" >&2; exit 1;
+}
+grep -q 'ClipboardCompat.copy(record.username())' "$ROOT/src/client/java/dev/zazu/servernotes/ui/ServerNotesScreen.java" || {
+  echo "Integrated Server Notes player-name copy action is missing" >&2; exit 1;
+}
+grep -q 'new ServerNotesScreen(this, profileKey, true, 0)' "$ROOT/src/client/java/dev/zazu/servernotes/ui/ServerNotesScreen.java" || {
+  echo "Players navigation is not routed through the integrated ServerNotesScreen view" >&2; exit 1;
+}
+if grep -q 'playerTracking()' "$ROOT/src/client/java/dev/zazu/servernotes/ui/ServerNotesScreen.java"; then
+  echo "Integrated Server Notes Players view still depends on live online status" >&2
+  exit 1
+fi
+if [[ -e "$ROOT/src/client/java/dev/zazu/servernotes/ui/PlayersListScreen.java" ]]; then
+  echo "Obsolete standalone PlayersListScreen remains in the RC source" >&2; exit 1;
+fi
+for obsolete in \
+    "$ROOT/src/client/java/dev/zazu/servernotes/ui/TagInputScreen.java" \
+    "$ROOT/src/client/java/dev/zazu/servernotes/ui/TagsScreen.java" \
+    "$ROOT/src/client/java/dev/zazu/servernotes/service/ServerTagService.java" \
+    "$ROOT/src/client/java/dev/zazu/servernotes/service/ServerProfileService.java"; do
+  if [[ -e "$obsolete" ]]; then
+    echo "Removed Server Notes UI/service code remains in the RC source: $obsolete" >&2
+    exit 1
+  fi
+done
+if grep -Eq 'Component\.literal\("Tags"\)|Tags: |Important' \
+    "$ROOT/src/client/java/dev/zazu/servernotes/ui/ServerNotesScreen.java"; then
+  echo "Removed Tags/Important controls remain on the Server Notes overview" >&2; exit 1
+fi
+grep -q 'AutoJoinFailureNotes.record' "$ROOT/src/client/java/dev/zazuzin/zst/AutoJoinEntrypoint.java" || {
+  echo "Auto Join failures are not persisted into Server Notes" >&2; exit 1;
+}
+if grep -q 'categoriesButton' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java"; then
+  echo "Redundant category-screen Categories button remains" >&2; exit 1
+fi
+grep -q 'ServerListAccess.synchronizeServerName(state.screen, sb.endpoint, updated)' \
+    "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Favourite toggles do not synchronize every live ServerData copy" >&2; exit 1;
+}
+if jar tf "$JAR" | grep -q 'dev/zazu/servernotes/ui/PlayersListScreen.class'; then
+  echo "Obsolete standalone PlayersListScreen was packaged" >&2; exit 1;
+fi
+if jar tf "$JAR" | grep -Eq 'dev/zazu/servernotes/(ui/(TagInputScreen|TagsScreen)|service/(ServerTagService|ServerProfileService))\.class'; then
+  echo "Removed Server Notes UI/service classes were packaged" >&2; exit 1
+fi
+grep -q 'map.put("tags", new ArrayList<>(tags))' "$ROOT/src/client/java/dev/zazu/servernotes/model/ServerProfile.java" || {
+  echo "Hidden Server Notes tags are no longer preserved in schema-v2 output" >&2; exit 1;
+}
+grep -q 'map.put("favourite", favourite)' "$ROOT/src/client/java/dev/zazu/servernotes/model/ServerProfile.java" || {
+  echo "Hidden Server Notes Important/favourite value is no longer preserved" >&2; exit 1;
+}
+grep -q 'registerBeforeExtract(state)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Per-frame row alignment registration is missing" >&2; exit 1;
+}
+grep -q 'updateRowPositionsOnly(state)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Per-frame row geometry update is missing" >&2; exit 1;
+}
+grep -Fq 'VisibleRange visible = visibleRange(state, listWidget)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Visible-window row geometry limit is missing" >&2; exit 1;
+}
+grep -Fq 'for (int i = Math.max(0, first); i <= last && i < state.serverButtons.size(); i++)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Row controls are still iterating outside the visible-window candidate range" >&2; exit 1;
+}
+if grep -Fq 'for (int i = 0; i < state.serverButtons.size(); i++)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java"; then
+  echo "Full-list per-frame/tick row-control scan has returned" >&2; exit 1
+fi
+grep -q 'ensureRowControls(state, sb)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Viewport-lazy row-control creation is missing" >&2; exit 1;
+}
+grep -q 'currentRowTop(listWidget, row.entry, middle, state.cachedListTop)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Authoritative-coordinate visible-row lookup is missing" >&2; exit 1;
+}
+grep -q 'materializeNextRowControl(state)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Bounded fallback row-control materialization is missing" >&2; exit 1;
+}
+if grep -q 'sortSavedServersFavouritesFirst(client)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java"; then
+  echo "Synchronous servers.dat sorting has returned to Multiplayer setup" >&2; exit 1
+fi
+grep -q 'MultiplayerManagementEntrypoint.clearRowButtons(state.screen)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Category hub is not clearing hidden row controls" >&2; exit 1;
+}
+if grep -q 'restoreFullRows(state)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java"; then
+  echo "Category hub is redundantly rebuilding the full server list" >&2; exit 1
+fi
+
 unzip -t "$JAR" >/dev/null
+python3 "$ROOT/tools/notes_ui_audit.py" "$JAR"
 
 jar tf "$JAR" | grep -qx 'assets/zazus-server-tool/icon.png' || {
   echo "Zazu's Server Seeker logo is missing from the JAR" >&2; exit 1;
 }
 
 MOD_JSON="$(unzip -p "$JAR" fabric.mod.json)"
-grep -q '"homepage": "https://github.com/Zazuzin/Zazus-Server-Scanner"' <<<"$MOD_JSON" || {
+grep -q '"homepage": "https://github.com/Zazuzin/Zazus-Server-Seeker"' <<<"$MOD_JSON" || {
   echo "Official project homepage is missing from Fabric metadata" >&2; exit 1;
 }
-grep -q '"sources": "https://github.com/Zazuzin/Zazus-Server-Scanner"' <<<"$MOD_JSON" || {
+grep -q '"sources": "https://github.com/Zazuzin/Zazus-Server-Seeker"' <<<"$MOD_JSON" || {
   echo "Official source repository is missing from Fabric metadata" >&2; exit 1;
 }
-grep -q '"issues": "https://github.com/Zazuzin/Zazus-Server-Scanner/issues"' <<<"$MOD_JSON" || {
+grep -q '"issues": "https://github.com/Zazuzin/Zazus-Server-Seeker/issues"' <<<"$MOD_JSON" || {
   echo "Official issue tracker is missing from Fabric metadata" >&2; exit 1;
 }
 
@@ -97,7 +223,7 @@ fi
 if grep -qE 'state\.(refreshButton|backButton) = makeButton' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java"; then
   echo "Replacement footer buttons still overlap Minecraft's originals" >&2; exit 1;
 fi
-grep -q 'Math.max(rowRight + 16, scrollbarX + 16)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+grep -Eq 'Math.max\(rowRight \+ 16, (scrollbarX|state\.cachedScrollbarX) \+ 16\)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
   echo "Favourite/Delete controls are not anchored beside the scrollbar" >&2; exit 1;
 }
 grep -q 'isNativeBackWidget' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
@@ -127,14 +253,11 @@ fi
 grep -q 'SCREEN_ROUTES.put(categoryScreen, new ScreenRoute(view, hub))' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Separate category-screen route registration is missing" >&2; exit 1;
 }
-grep -q 'returnToCategoryHub(state)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
-  echo "Category-to-hub navigation is missing" >&2; exit 1;
+grep -q 'newMultiplayerScreen(state.screen.getClass(), hub)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Category screens are not parented to the category hub" >&2; exit 1;
 }
-grep -q 'refreshCategoryHubCounts(hubScreen)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
-  echo "Category hub counters are not refreshed on return" >&2; exit 1;
-}
-grep -A15 'private static void refreshCategoryHubCounts' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" | grep -q 'ServerListAccess.reloadCategory(hub.client, hub.screen, null)' || {
-  echo "Category hub count refresh does not reload servers.dat" >&2; exit 1;
+grep -q 'previous != null && route == null && hubScreen == screen' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Returning category hub does not reload servers.dat" >&2; exit 1;
 }
 grep -q 'state.layoutDirty = true' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Live window-resize layout invalidation is missing" >&2; exit 1;
@@ -175,8 +298,8 @@ grep -q 'DisconnectReason.extract' "$ROOT/src/client/java/dev/zazuzin/zst/Whitel
 grep -q 'allServerDataLists' "$ROOT/src/client/java/dev/zazuzin/zst/ServerListAccess.java" || {
   echo "Whitelist deletion is not sweeping all ServerList backing lists" >&2; exit 1;
 }
-grep -q 'dedicated left-side rail' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
-  echo "Dedicated non-overlapping Multiplayer control rail is missing" >&2; exit 1;
+grep -q 'int finderY = refreshBounds != null ? refreshBounds.y()' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Bottom-aligned non-overlapping Multiplayer control rail is missing" >&2; exit 1;
 }
 grep -q 'registerControlMouseInterceptor' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Left-rail click interception is missing" >&2; exit 1;
@@ -557,13 +680,92 @@ fi
 grep -q 'ScreenRoute route = SCREEN_ROUTES.get(screen)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Category route is not persistent across repeated screen initialisation" >&2; exit 1;
 }
-grep -q 'returnToCategoryHub(state)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+grep -q 'new ScreenRoute(view, hub)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Category Back routing is missing" >&2; exit 1;
 }
 grep -q 'visibleAndContains(state.undoButton' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || { echo "Undo click is not routed through the Multiplayer interceptor" >&2; exit 1; }
 if grep -qE 'Protected Server|toggleProtected|P✓|isProtectedData' "$ROOT/src/client/java/dev/zazuzin/zst/"*.java; then echo "Removed protection feature is still present" >&2; exit 1; fi
 
-EXPECTED_CLASS_MAJOR="${EXPECTED_CLASS_MAJOR:-65}"
+# Server Notes native-merge regression guards.
+NOTES_BOOTSTRAP="$ROOT/src/client/java/dev/zazu/servernotes/client/ZazusServerNotesClient.java"
+NOTES_ROWS="$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java"
+
+grep -q 'InputConstants.KEY_N' "$NOTES_BOOTSTRAP" || {
+  echo "Server Notes default N keybind is missing" >&2; exit 1;
+}
+[[ "$(grep -c 'ClientTickEvents.END_CLIENT_TICK.register' "$NOTES_BOOTSTRAP")" -eq 1 ]] || {
+  echo "Server Notes must have exactly one client tick registration" >&2; exit 1;
+}
+grep -q 'app.playerTracking().tick(client)' "$NOTES_BOOTSTRAP" || {
+  echo "Server Notes player tracking tick is missing" >&2; exit 1;
+}
+grep -q 'sb.notes = makeNotesButton' "$NOTES_ROWS" || {
+  echo "Dedicated native Notes row button is missing" >&2; exit 1;
+}
+grep -q 'int favX = notesX + 23' "$NOTES_ROWS" || {
+  echo "Notes does not own a dedicated compact slot before Favourite" >&2; exit 1;
+}
+grep -q 'int authX = favX + 23' "$NOTES_ROWS" || {
+  echo "Favourite/Auth compact row ordering changed" >&2; exit 1;
+}
+grep -Eq 'int deleteX = (ToolState\.authDetectionEnabled|authEnabled) \? authX \+ 23 : favX \+ 23' "$NOTES_ROWS" || {
+  echo "Delete compact row slot is missing" >&2; exit 1;
+}
+grep -Fq '20 * 4 + 3 * 3' "$NOTES_ROWS" || {
+  echo "Compact four-control row width is missing" >&2; exit 1;
+}
+grep -q 'Reflection.setTooltip(sb.notes, "Notes")' "$NOTES_ROWS" || {
+  echo "Notes tooltip is missing" >&2; exit 1;
+}
+grep -q 'makeSpriteButton(x, y, "Notes", "book"' "$NOTES_ROWS" || {
+  echo "Notes book sprite identifier is missing" >&2; exit 1;
+}
+grep -q 'authRowTooltip' "$NOTES_ROWS" || {
+  echo "Compact auth tooltip mapping is missing" >&2; exit 1;
+}
+grep -q 'makeDeleteButton' "$NOTES_ROWS" || {
+  echo "Trash-icon Delete control is missing" >&2; exit 1;
+}
+jar tf "$JAR" | grep -qx 'assets/zazus_server_notes/textures/gui/sprites/trash.png' || {
+  echo "Trash icon resource is missing from the JAR" >&2; exit 1;
+}
+grep -q 'ServerAddressNormalizer' "$NOTES_ROWS" || {
+  echo "Notes row open path is not using ServerAddressNormalizer" >&2; exit 1;
+}
+# rowWidgets must remain the historical Favourite/Delete pair contract.
+python3 - "$NOTES_ROWS" <<'PY2'
+from pathlib import Path
+import re, sys
+s=Path(sys.argv[1]).read_text()
+m=re.search(r'static List<Object> rowWidgets\(Object screen\) \{(.*?)\n    \}', s, re.S)
+if not m:
+    raise SystemExit('rowWidgets contract method missing')
+body=m.group(1)
+if 'buttons.notes' in body or 'buttons.auth' in body:
+    raise SystemExit('rowWidgets Favourite/Delete compatibility contract was changed')
+if 'buttons.favourite' not in body or 'buttons.delete' not in body:
+    raise SystemExit('rowWidgets Favourite/Delete compatibility pair missing')
+PY2
+grep -q 'dev.zazu.servernotes.client.ZazusServerNotesClient' "$ROOT/src/main/resources/fabric.mod.json" || {
+  echo "Merged Server Notes bootstrap entrypoint is missing" >&2; exit 1;
+}
+grep -q 'buttons.notes' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Native Server Notes row control is missing" >&2; exit 1;
+}
+grep -q 'allRowWidgets(state.screen)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Server Notes row control is not category-managed" >&2; exit 1;
+}
+if grep -R -n 'MultiplayerNotesIntegration.initialize' "$ROOT/src/client/java"; then
+  echo "Standalone MultiplayerNotesIntegration is still initialized" >&2; exit 1;
+fi
+grep -q 'resolve("zazus-server-notes")' "$ROOT/src/client/java/dev/zazu/servernotes/storage/ServerProfileStore.java" || {
+  echo "Server Notes data directory changed" >&2; exit 1;
+}
+grep -q 'SCHEMA_VERSION = 2' "$ROOT/src/client/java/dev/zazu/servernotes/storage/ServerProfileStore.java" || {
+  echo "Server Notes schema version changed" >&2; exit 1;
+}
+
+EXPECTED_CLASS_MAJOR="${EXPECTED_CLASS_MAJOR:-69}"
 python3 - "$JAR" "$VERSION" "$EXPECTED_CLASS_MAJOR" <<'PY'
 import json, struct, sys, zipfile
 from pathlib import PurePosixPath
@@ -572,6 +774,7 @@ jar = sys.argv[1]
 expected_version = sys.argv[2]
 expected_major = int(sys.argv[3])
 expected_entrypoints = {
+    "dev.zazu.servernotes.client.ZazusServerNotesClient",
     "dev.zazuzin.zst.MultiplayerManagementEntrypoint",
     "dev.zazuzin.zst.WhitelistAutoDeleteEntrypoint",
     "dev.zazuzin.zst.AutoJoinEntrypoint",
@@ -583,6 +786,13 @@ with zipfile.ZipFile(jar) as z:
     names = z.namelist()
     if len(names) != len(set(names)):
         raise SystemExit("JAR contains duplicate paths")
+
+    if "dev/zazu/servernotes/client/ZazusServerNotesClient.class" not in names:
+        raise SystemExit("Merged Server Notes bootstrap class is missing")
+    if any(n.startswith("dev/zazu/servernotes/client/MultiplayerNotesIntegration") for n in names):
+        raise SystemExit("Standalone MultiplayerNotesIntegration was packaged")
+    if "assets/zazus_server_notes/textures/gui/sprites/book.png" not in names:
+        raise SystemExit("Server Notes book sprite is missing")
 
     meta = json.loads(z.read("fabric.mod.json"))
     if meta.get("id") != "zazus-server-tool":
@@ -603,6 +813,69 @@ with zipfile.ZipFile(jar) as z:
         if major != expected_major:
             raise SystemExit(f"{name} targets class-file major {major}, expected {expected_major}")
 
+    # Minecraft 26.2 defines Component as an interface. A direct javac build
+    # against a class-shaped stub produces a Methodref here and crashes at
+    # runtime with IncompatibleClassChangeError as soon as Server Notes opens.
+    def constant_pool_refs(data):
+        cp_count = struct.unpack_from(">H", data, 8)[0]
+        p = 10
+        cp = [None] * cp_count
+        i = 1
+        while i < cp_count:
+            tag = data[p]
+            p += 1
+            if tag == 1:
+                length = struct.unpack_from(">H", data, p)[0]
+                p += 2
+                cp[i] = (tag, data[p:p + length].decode("utf-8", "replace"))
+                p += length
+            elif tag in (3, 4):
+                cp[i] = (tag,)
+                p += 4
+            elif tag in (5, 6):
+                cp[i] = (tag,)
+                p += 8
+                i += 1
+            elif tag in (7, 8, 16, 19, 20):
+                cp[i] = (tag, struct.unpack_from(">H", data, p)[0])
+                p += 2
+            elif tag in (9, 10, 11, 12, 17, 18):
+                a, b = struct.unpack_from(">HH", data, p)
+                cp[i] = (tag, a, b)
+                p += 4
+            elif tag == 15:
+                cp[i] = (tag, data[p], struct.unpack_from(">H", data, p + 1)[0])
+                p += 3
+            else:
+                raise SystemExit(f"Unsupported constant-pool tag {tag}")
+            i += 1
+
+        def utf8(index):
+            return cp[index][1]
+        def class_name(index):
+            return utf8(cp[index][1])
+
+        refs = []
+        for item in cp:
+            if item and item[0] in (9, 10, 11):
+                tag, class_index, nt_index = item
+                nt = cp[nt_index]
+                refs.append((tag, class_name(class_index), utf8(nt[1]), utf8(nt[2])))
+        return refs
+
+    notes_screen = z.read("dev/zazu/servernotes/ui/ServerNotesScreen.class")
+    component_literal = [
+        ref for ref in constant_pool_refs(notes_screen)
+        if ref[1] == "net/minecraft/network/chat/Component" and ref[2] == "literal"
+    ]
+    if not component_literal:
+        raise SystemExit("ServerNotesScreen has no Component.literal reference")
+    if any(ref[0] != 11 for ref in component_literal):
+        raise SystemExit(
+            "ServerNotesScreen Component.literal is not InterfaceMethodref; "
+            "this will crash on Minecraft 26.2"
+        )
+
     forbidden = {
         "dev/zazuzin/zst/CoreUiStripper.class",
         "dev/zazuzin/zst/EnhancementsEntrypoint.class",
@@ -610,17 +883,26 @@ with zipfile.ZipFile(jar) as z:
     if forbidden.intersection(names):
         raise SystemExit("Legacy patch-only classes are still packaged")
 
-print(f"Verified {len(classes)} Java 21 class files and Fabric metadata.")
+print(f"Verified {len(classes)} Java 25 class files and Fabric metadata.")
 PY
 
-# Both BreakBlocks request paths must identify the packaged beta consistently.
+# Release identity must be centralized and match the packaged Gradle version.
+grep -q "static final String VERSION = \"$VERSION\"" "$ROOT/src/client/java/dev/zazuzin/zst/ReleaseInfo.java" || {
+  echo "ReleaseInfo version mismatch" >&2; exit 1;
+}
 for source in ServerFinderClient BreakBlocksContributor; do
-  grep -q 'USER_AGENT = "ZazusServerSeeker/0.4.1-beta.1"' \
+  grep -q 'USER_AGENT = ReleaseInfo.USER_AGENT' \
     "$ROOT/src/client/java/dev/zazuzin/zst/${source}.java" || {
-    echo "$source User-Agent version mismatch" >&2
+    echo "$source is not using centralized release User-Agent" >&2
     exit 1
   }
 done
+if grep -R -n 'ZazusServerSeeker/0\.4\.1-beta' "$ROOT/src/client/java"; then
+  echo "Stale beta User-Agent remains in source" >&2; exit 1;
+fi
+grep -q 'Build: " + ReleaseInfo.VERSION' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
+  echo "Finder Settings build/version indicator is missing" >&2; exit 1;
+}
 
 # Verify optional BreakBlocks authentication is header-only and that anonymous
 # requests remain untouched.
@@ -714,7 +996,7 @@ public final class ApiKeyRequestTest {
     }
 }
 JAVA
-javac --release 21 -cp "$JAR" -d "$API_TEST_DIR" "$API_TEST_DIR/dev/zazuzin/zst/ApiKeyRequestTest.java"
+javac --release 25 -cp "$JAR" -d "$API_TEST_DIR" "$API_TEST_DIR/dev/zazuzin/zst/ApiKeyRequestTest.java"
 java -Duser.dir="$API_TEST_DIR" -cp "$JAR:$API_TEST_DIR" dev.zazuzin.zst.ApiKeyRequestTest
 
 echo "BreakBlocks optional-authentication regression tests passed."
@@ -758,7 +1040,7 @@ public final class ProviderParsingTest {
         if (provider.headers().firstValue("Authorization").isPresent())
             throw new AssertionError("No-key provider unexpectedly received Authorization header");
         String ua = provider.headers().firstValue("User-Agent").orElse("");
-        if (!"ZazusServerSeeker/0.4.1-beta.1".equals(ua))
+        if (!ReleaseInfo.USER_AGENT.equals(ua))
             throw new AssertionError("Provider User-Agent version mismatch: " + ua);
 
         if (!"1.2.3.4".equals(ServerFinderClient.intToIpv4(16909060L)))
@@ -766,7 +1048,7 @@ public final class ProviderParsingTest {
     }
 }
 JAVA
-javac --release 21 -cp "$JAR" -d "$PROVIDER_TEST_DIR" "$PROVIDER_TEST_DIR/dev/zazuzin/zst/ProviderParsingTest.java"
+javac --release 25 -cp "$JAR" -d "$PROVIDER_TEST_DIR" "$PROVIDER_TEST_DIR/dev/zazuzin/zst/ProviderParsingTest.java"
 java -Duser.dir="$PROVIDER_TEST_DIR" -cp "$JAR:$PROVIDER_TEST_DIR" dev.zazuzin.zst.ProviderParsingTest
 rm -rf "$PROVIDER_TEST_DIR"
 echo "Multi-provider parsing/request regression tests passed."
@@ -928,10 +1210,154 @@ public final class VanillaStatusProbeTest {
     }
 }
 JAVA
-javac --release 21 -cp "$JAR" -d "$PROBE_TEST_DIR" $(find "$PROBE_TEST_DIR" -name '*.java' -type f | sort)
+javac --release 25 -cp "$JAR" -d "$PROBE_TEST_DIR" $(find "$PROBE_TEST_DIR" -name '*.java' -type f | sort)
 java -Duser.dir="$PROBE_TEST_DIR" -cp "$JAR:$PROBE_TEST_DIR" dev.zazuzin.zst.VanillaStatusProbeTest
 rm -rf "$PROBE_TEST_DIR"
 echo "Bounded pure-Java Minecraft status-client regression test passed."
+
+# Authentication classification must remain non-blocking and protocol-driven.
+grep -q 'RECHECK_DAYS = 14' "$ROOT/src/client/java/dev/zazuzin/zst/ServerAuthService.java" || {
+  echo "Authentication recheck interval is not 14 days" >&2; exit 1;
+}
+grep -q 'WORKERS = 8' "$ROOT/src/client/java/dev/zazuzin/zst/ServerAuthService.java" || {
+  echo "Authentication probe worker pool is not bounded to 8" >&2; exit 1;
+}
+grep -q 'TIMEOUT_MS = 3_000' "$ROOT/src/client/java/dev/zazuzin/zst/ServerAuthService.java" || {
+  echo "Authentication probe timeout is not 3 seconds" >&2; exit 1;
+}
+grep -q 'Auth Detection: ' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
+  echo "Authentication detection setting is missing" >&2; exit 1;
+}
+grep -q 'ServerAuthService.ensureAsync' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Existing Scanned Servers are not feeding the auth classifier" >&2; exit 1;
+}
+
+AUTH_TEST_DIR="$(mktemp -d)"
+mkdir -p "$AUTH_TEST_DIR/dev/zazuzin/zst"
+cat > "$AUTH_TEST_DIR/dev/zazuzin/zst/AuthProbeRegressionTest.java" <<'JAVA'
+package dev.zazuzin.zst;
+
+import java.io.*;
+import java.lang.reflect.Method;
+import java.net.*;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicReference;
+
+public final class AuthProbeRegressionTest {
+    enum Mode { MICROSOFT, OFFLINE_ENCRYPTED, CRACKED, COMPRESSED_CRACKED }
+
+    public static void main(String[] args) throws Exception {
+        if (ServerAuthService.RECHECK_DAYS != 14) throw new AssertionError("Auth cache must recheck after 14 days");
+        if (ServerAuthService.WORKERS != 8) throw new AssertionError("Auth worker pool must stay bounded to 8");
+        if (ServerAuthService.TIMEOUT_MS != 3000) throw new AssertionError("Auth probe timeout must stay at 3 seconds");
+        assertType(Mode.MICROSOFT, ServerAuthService.Type.MICROSOFT);
+        assertType(Mode.OFFLINE_ENCRYPTED, ServerAuthService.Type.CRACKED);
+        assertType(Mode.CRACKED, ServerAuthService.Type.CRACKED);
+        assertType(Mode.COMPRESSED_CRACKED, ServerAuthService.Type.CRACKED);
+    }
+
+    private static void assertType(Mode mode, ServerAuthService.Type expected) throws Exception {
+        AtomicReference<Throwable> serverFailure = new AtomicReference<>();
+        try (ServerSocket server = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            Thread responder = new Thread(() -> {
+                try (Socket socket = server.accept()) {
+                    InputStream in = new BufferedInputStream(socket.getInputStream());
+                    OutputStream out = new BufferedOutputStream(socket.getOutputStream());
+                    readFrame(in); // Handshake
+                    byte[] login = readFrame(in);
+                    ByteArrayInputStream loginIn = new ByteArrayInputStream(login);
+                    if (readVarInt(loginIn) != 0) throw new AssertionError("Expected Login Start packet");
+                    String username = readString(loginIn);
+                    if (!username.startsWith("ZazuAuth_") || username.length() != 16)
+                        throw new AssertionError("Probe username is not bounded/non-identifying: " + username);
+
+                    switch (mode) {
+                        case MICROSOFT -> sendEncryption(out, true);
+                        case OFFLINE_ENCRYPTED -> sendEncryption(out, false);
+                        case CRACKED -> writeFrame(out, new byte[]{2});
+                        case COMPRESSED_CRACKED -> {
+                            ByteArrayOutputStream compression = new ByteArrayOutputStream();
+                            writeVarInt(compression, 3);
+                            writeVarInt(compression, 256);
+                            writeFrame(out, compression.toByteArray());
+                            ByteArrayOutputStream success = new ByteArrayOutputStream();
+                            writeVarInt(success, 0); // below compression threshold
+                            writeVarInt(success, 2); // Login Success
+                            writeFrame(out, success.toByteArray());
+                        }
+                    }
+                    out.flush();
+                } catch (Throwable failure) {
+                    serverFailure.set(failure);
+                }
+            }, "auth-probe-regression-server");
+            responder.start();
+
+            Method probe = ServerAuthService.class.getDeclaredMethod("probe", String.class, int.class);
+            probe.setAccessible(true);
+            ServerAuthService.Entry result = (ServerAuthService.Entry) probe.invoke(null,
+                    "127.0.0.1:" + server.getLocalPort(), 776);
+            responder.join(5000L);
+            if (responder.isAlive()) throw new AssertionError("Auth test server did not finish");
+            if (serverFailure.get() != null) throw new AssertionError("Auth test server failed", serverFailure.get());
+            if (result.type() != expected) throw new AssertionError(mode + " => " + result.type() + ", expected " + expected);
+        }
+    }
+
+    private static void sendEncryption(OutputStream out, boolean shouldAuthenticate) throws IOException {
+        ByteArrayOutputStream p = new ByteArrayOutputStream();
+        writeVarInt(p, 1);
+        writeString(p, "");
+        writeVarInt(p, 1); p.write('K');
+        writeVarInt(p, 4); p.write("TEST".getBytes(StandardCharsets.UTF_8));
+        p.write(shouldAuthenticate ? 1 : 0);
+        writeFrame(out, p.toByteArray());
+    }
+
+    private static byte[] readFrame(InputStream in) throws IOException {
+        int length = readVarInt(in);
+        byte[] bytes = in.readNBytes(length);
+        if (bytes.length != length) throw new EOFException();
+        return bytes;
+    }
+
+    private static void writeFrame(OutputStream out, byte[] payload) throws IOException {
+        writeVarInt(out, payload.length); out.write(payload);
+    }
+
+    private static String readString(InputStream in) throws IOException {
+        int length = readVarInt(in);
+        return new String(in.readNBytes(length), StandardCharsets.UTF_8);
+    }
+
+    private static int readVarInt(InputStream in) throws IOException {
+        int value = 0;
+        for (int pos = 0; pos < 5; pos++) {
+            int b = in.read(); if (b < 0) throw new EOFException();
+            value |= (b & 0x7f) << (pos * 7);
+            if ((b & 0x80) == 0) return value;
+        }
+        throw new IOException("VarInt too large");
+    }
+
+    private static void writeVarInt(OutputStream out, int value) throws IOException {
+        do {
+            int b = value & 0x7f; value >>>= 7;
+            if (value != 0) b |= 0x80;
+            out.write(b);
+        } while (value != 0);
+    }
+
+    private static void writeString(OutputStream out, String value) throws IOException {
+        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        writeVarInt(out, bytes.length); out.write(bytes);
+    }
+}
+JAVA
+javac --release 25 -cp "$JAR" -d "$AUTH_TEST_DIR" "$AUTH_TEST_DIR/dev/zazuzin/zst/AuthProbeRegressionTest.java"
+java -Duser.dir="$AUTH_TEST_DIR" -cp "$JAR:$AUTH_TEST_DIR" dev.zazuzin.zst.AuthProbeRegressionTest
+rm -rf "$AUTH_TEST_DIR"
+echo "Asynchronous Microsoft/Cracked authentication-classifier regression tests passed."
 
 DISCONNECT_TEST_DIR="$(mktemp -d)"
 mkdir -p "$DISCONNECT_TEST_DIR/dev/zazuzin/zst"
@@ -971,10 +1397,14 @@ public final class DisconnectReasonTest {
         if (DisconnectReason.isRateLimited("Connection timed out")) {
             throw new AssertionError("Ordinary timeout was misclassified as rate-limited");
         }
+        String concise = DisconnectReason.concise("Connection Lost | Failed to connect to the server | Connection timed out | Back to Server List");
+        if (!"Connection timed out".equals(concise)) {
+            throw new AssertionError("Disconnect reason was not reduced to the useful detail: " + concise);
+        }
     }
 }
 JAVA
-javac --release 21 -cp "$JAR" -d "$DISCONNECT_TEST_DIR" "$DISCONNECT_TEST_DIR/dev/zazuzin/zst/DisconnectReasonTest.java"
+javac --release 25 -cp "$JAR" -d "$DISCONNECT_TEST_DIR" "$DISCONNECT_TEST_DIR/dev/zazuzin/zst/DisconnectReasonTest.java"
 java -Duser.dir="$DISCONNECT_TEST_DIR" -cp "$JAR:$DISCONNECT_TEST_DIR" dev.zazuzin.zst.DisconnectReasonTest
 rm -rf "$DISCONNECT_TEST_DIR"
 echo "Disconnect/whitelist/rate-limit regression tests passed."
@@ -1022,7 +1452,18 @@ public final class RuntimeRegressionTest {
         final List<Object> children = new ArrayList<>();
         final List<Object> renderables = new ArrayList<>();
         final List<Object> narratables = new ArrayList<>();
+        final ServerList servers = new ServerList();
+        final FakeListWidget serverSelectionList = new FakeListWidget();
         public void removeWidget(Object widget) { children.remove(widget); }
+    }
+
+    static final class FakeListWidget {
+        final List<Object> onlineServers = new ArrayList<>();
+    }
+
+    static final class FakeServerEntry {
+        final ServerData serverData;
+        FakeServerEntry(ServerData serverData) { this.serverData = serverData; }
     }
 
     public static void main(String[] args) {
@@ -1032,6 +1473,15 @@ public final class RuntimeRegressionTest {
         Reflection.removeWidget(screen, ghost);
         if (screen.children.contains(ghost) || screen.renderables.contains(ghost) || screen.narratables.contains(ghost)) {
             throw new AssertionError("removeWidget left a ghost widget in a Screen list");
+        }
+
+        ServerData sourceCopy = new ServerData("★ Pause Favourite", "favourite.example:25565");
+        ServerData rowCopy = new ServerData("★ Pause Favourite", "favourite.example:25565");
+        screen.servers.servers.add(sourceCopy);
+        screen.serverSelectionList.onlineServers.add(new FakeServerEntry(rowCopy));
+        ServerListAccess.synchronizeServerName(screen, "favourite.example:25565", "Pause Favourite");
+        if (sourceCopy.name.startsWith("★ ") || rowCopy.name.startsWith("★ ")) {
+            throw new AssertionError("Unfavourite left a stale starred ServerData copy");
         }
 
         ServerList.persistedVisible.clear();
@@ -1112,7 +1562,7 @@ public final class RuntimeRegressionTest {
     }
 }
 JAVA
-javac --release 21 -cp "$JAR" -d "$RUNTIME_TEST_DIR"   "$RUNTIME_TEST_DIR/net/fabricmc/api/ClientModInitializer.java"   "$RUNTIME_TEST_DIR/net/minecraft/client/multiplayer/ServerData.java"   "$RUNTIME_TEST_DIR/net/minecraft/client/multiplayer/ServerList.java"   "$RUNTIME_TEST_DIR/dev/zazuzin/zst/RuntimeRegressionTest.java"
+javac --release 25 -cp "$JAR" -d "$RUNTIME_TEST_DIR"   "$RUNTIME_TEST_DIR/net/fabricmc/api/ClientModInitializer.java"   "$RUNTIME_TEST_DIR/net/minecraft/client/multiplayer/ServerData.java"   "$RUNTIME_TEST_DIR/net/minecraft/client/multiplayer/ServerList.java"   "$RUNTIME_TEST_DIR/dev/zazuzin/zst/RuntimeRegressionTest.java"
 java -Duser.dir="$RUNTIME_TEST_DIR" -cp "$JAR:$RUNTIME_TEST_DIR" dev.zazuzin.zst.RuntimeRegressionTest
 rm -rf "$RUNTIME_TEST_DIR"
 echo "Widget-removal and persisted whitelist-deletion regression tests passed."

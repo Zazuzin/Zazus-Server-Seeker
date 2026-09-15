@@ -4,6 +4,7 @@ import net.fabricmc.api.ClientModInitializer;
 
 import java.lang.reflect.*;
 import java.util.*;
+import java.util.function.Consumer;
 
 /** Installs the Multiplayer-screen management controls. */
 public final class MultiplayerManagementEntrypoint implements ClientModInitializer {
@@ -49,10 +50,9 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         MultiplayerState state = new MultiplayerState(client, screen, width, height);
         STATES.put(screen, state);
 
-        if (ToolState.favouritesFirst) {
-            try { sortSavedServersFavouritesFirst(client); }
-            catch (Throwable t) { System.err.println("[Zazu's Server Seeker] Favourites-first sorting skipped: " + Reflection.unwrap(t)); }
-        }
+        // The category hub owns the visible ordering. Sorting and saving the
+        // complete servers.dat here did no visible work, and repeated that
+        // synchronous disk pass for the hub and every category screen.
 
         state.finderButton = Reflection.makeButton("Zazu's Server Seeker", 6, Math.max(6, height - 28), 170, 20,
                 b -> openFinder(state));
@@ -70,9 +70,10 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         Reflection.setBoolean(state.undoButton, "visible", false);
         Reflection.setBoolean(state.undoButton, "active", false);
 
-        createPerServerButtons(state);
+        initializeRowButtonState(state);
         registerRowButtonMouseInterceptor(state);
         registerAfterTick(state);
+        registerBeforeExtract(state);
         System.out.println("[Zazu's Server Seeker] Multiplayer controls installed. ViaFabricPlus integration: " + (ViaFabricPlusBridge.isAvailable() ? "available" : "not installed"));
     }
 
@@ -81,35 +82,69 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         Reflection.removeWidget(state.screen, state.finderButton);
         Reflection.removeWidget(state.screen, state.deleteAllButton);
         Reflection.removeWidget(state.screen, state.undoButton);
-        for (ServerButtons buttons : new ArrayList<>(state.serverButtons)) {
-            Reflection.removeWidget(state.screen, buttons.favourite);
-            Reflection.removeWidget(state.screen, buttons.delete);
-        }
-        state.serverButtons.clear();
+        clearPerServerButtons(state);
     }
 
     private static void createPerServerButtons(MultiplayerState state) throws Exception {
-        for (ServerButtons buttons : state.serverButtons) {
-            Reflection.removeWidget(state.screen, buttons.favourite);
-            Reflection.removeWidget(state.screen, buttons.delete);
-        }
-        state.serverButtons.clear();
+        clearPerServerButtons(state);
+        initializeRowButtonState(state);
         List<Object> entries = onlineServerEntries(state.screen);
         for (Object entry : entries) {
             Object data = getServerData(entry);
             if (data == null) continue;
             String endpoint = ServerFinderClient.ServerListBridge.serverEndpoint(data);
-            if (endpoint.isBlank()) continue;
-            ServerButtons sb = new ServerButtons(entry, data, endpoint);
-            sb.favourite = Reflection.makeButton(isFavourite(data) ? "★" : "☆", 0, -100, 22, 20, b -> toggleFavourite(state, sb));
-            sb.delete = Reflection.makeButton(isFavourite(data) ? "Locked" : "Delete", 0, -100, 48, 20, b -> deleteSingle(state, sb));
-            Reflection.addWidget(state.screen, sb.favourite);
-            Reflection.addWidget(state.screen, sb.delete);
-            MANAGED_WIDGETS.add(sb.favourite);
-            MANAGED_WIDGETS.add(sb.delete);
-            state.serverButtons.add(sb);
+            if (!endpoint.isBlank()) state.serverButtons.add(new ServerButtons(entry, data, endpoint));
         }
+        // Widgets are materialized only for the viewport-sized range below.
+        // A large category therefore no longer creates four Minecraft widgets
+        // for every saved server before its first frame can be displayed.
         updatePerServerButtons(state);
+    }
+
+    private static void initializeRowButtonState(MultiplayerState state) {
+        state.listWidget = Reflection.getField(state.screen, "serverSelectionList", "serverList");
+        state.geometryDirty = true;
+        state.nextStructureValidationAt = System.currentTimeMillis() + 750L;
+        state.lastScrollAmount = Double.NaN;
+        state.lastVisibleStart = -1;
+        state.lastVisibleEnd = -1;
+        state.nextMaterializationIndex = 0;
+    }
+
+    private static void clearPerServerButtons(MultiplayerState state) {
+        for (ServerButtons buttons : new ArrayList<>(state.serverButtons)) {
+            removeRowControls(state, buttons);
+        }
+        state.serverButtons.clear();
+        state.lastVisibleStart = -1;
+        state.lastVisibleEnd = -1;
+    }
+
+    private static void removeRowControls(MultiplayerState state, ServerButtons buttons) {
+        if (buttons == null) return;
+        for (Object widget : new Object[]{buttons.notes, buttons.favourite, buttons.auth, buttons.delete}) {
+            if (widget != null) Reflection.removeWidget(state.screen, widget);
+        }
+        buttons.notes = buttons.favourite = buttons.auth = buttons.delete = null;
+    }
+
+    private static void ensureRowControls(MultiplayerState state, ServerButtons sb) throws Exception {
+        if (sb.notes != null) return;
+        sb.notes = makeNotesButton(0, -100, b -> openNotes(state, sb));
+        Reflection.setTooltip(sb.notes, "Notes");
+        boolean favourite = isFavourite(sb.serverData);
+        sb.favourite = Reflection.makeButton(favourite ? "★" : "☆", 0, -100, 20, 20, b -> toggleFavourite(state, sb));
+        Reflection.setTooltip(sb.favourite, favourite ? "Unfavourite" : "Favourite");
+        sb.auth = Reflection.makeButton(authRowLabel(sb.endpoint), 0, -100, 20, 20, b -> recheckAuth(state, sb));
+        Reflection.setTooltip(sb.auth, authRowTooltip(sb.endpoint));
+        sb.delete = makeDeleteButton(0, -100, b -> deleteSingle(state, sb));
+        Reflection.setTooltip(sb.delete, favourite ? "Delete (unfavourite first)" : "Delete");
+        for (Object widget : List.of(sb.notes, sb.favourite, sb.auth, sb.delete)) {
+            Reflection.setBoolean(widget, "visible", false);
+            Reflection.setBoolean(widget, "active", false);
+            Reflection.addWidget(state.screen, widget);
+            MANAGED_WIDGETS.add(widget);
+        }
     }
 
     private static void registerRowButtonMouseInterceptor(MultiplayerState state) throws Exception {
@@ -140,8 +175,16 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
                     undoLastDelete(state); return Boolean.FALSE;
                 }
                 for (ServerButtons buttons : state.serverButtons) {
+                    if (visibleAndContains(buttons.notes, x, y)) {
+                        openNotes(state, buttons);
+                        return Boolean.FALSE;
+                    }
                     if (visibleAndContains(buttons.favourite, x, y)) {
                         toggleFavourite(state, buttons);
+                        return Boolean.FALSE;
+                    }
+                    if (visibleAndContains(buttons.auth, x, y)) {
+                        recheckAuth(state, buttons);
                         return Boolean.FALSE;
                     }
                     if (visibleAndContains(buttons.delete, x, y)) {
@@ -214,11 +257,24 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
             try {
                 if (STATES.get(state.screen) != state) return null;
                 if (Reflection.currentScreen(state.client) != state.screen) return null;
-                state.width = Reflection.screenWidth(state.screen, state.width);
-                state.height = Reflection.screenHeight(state.screen, state.height);
+
+                int newWidth = Reflection.screenWidth(state.screen, state.width);
+                int newHeight = Reflection.screenHeight(state.screen, state.height);
+                if (newWidth != state.width || newHeight != state.height) {
+                    state.width = newWidth;
+                    state.height = newHeight;
+                    state.geometryDirty = true;
+                }
+
                 updatePerServerButtons(state);
-                updateDeleteAllConfirmation(state);
-                syncViaFabricPlusForSelected(state);
+                if (state.deleteAllArmedUntil != 0L) updateDeleteAllConfirmation(state);
+
+                long now = System.currentTimeMillis();
+                if (now >= state.nextSelectionSyncAt) {
+                    state.nextSelectionSyncAt = now + 200L;
+                    syncViaFabricPlusForSelected(state);
+                    protectVanillaDeleteButton(state);
+                }
             } catch (Throwable t) {
                 if (!state.loggedTickFailure) {
                     state.loggedTickFailure = true;
@@ -228,6 +284,201 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
             return null;
         });
         registerEventObject(afterTickEvent, listener);
+    }
+
+    private static void registerBeforeExtract(MultiplayerState state) {
+        try {
+            Class<?> screenEvents = Class.forName("net.fabricmc.fabric.api.client.screen.v1.ScreenEvents");
+            Object beforeExtractEvent = null;
+            for (Method m : screenEvents.getMethods()) {
+                if (Modifier.isStatic(m.getModifiers()) && m.getName().equals("beforeExtract") && m.getParameterCount() == 1
+                        && m.getParameterTypes()[0].isInstance(state.screen)) {
+                    beforeExtractEvent = m.invoke(null, state.screen);
+                    break;
+                }
+            }
+            if (beforeExtractEvent == null) {
+                System.out.println("[Zazu's Server Seeker] Per-frame row alignment unavailable; using tick fallback.");
+                return;
+            }
+            Class<?> callback = Class.forName("net.fabricmc.fabric.api.client.screen.v1.ScreenEvents$BeforeExtract");
+            Object listener = Proxy.newProxyInstance(callback.getClassLoader(), new Class<?>[]{callback}, (proxy, method, args) -> {
+                if (method.getDeclaringClass() == Object.class) return Reflection.objectMethod(proxy, method, args);
+                try {
+                    if (STATES.get(state.screen) != state) return null;
+                    if (Reflection.currentScreen(state.client) != state.screen) return null;
+                    updateRowPositionsOnly(state);
+                } catch (Throwable t) {
+                    if (!state.loggedRenderFailure) {
+                        state.loggedRenderFailure = true;
+                        System.err.println("[Zazu's Server Seeker] Per-frame row alignment failed: " + Reflection.unwrap(t));
+                    }
+                }
+                return null;
+            });
+            registerEventObject(beforeExtractEvent, listener);
+        } catch (Throwable t) {
+            System.out.println("[Zazu's Server Seeker] Per-frame row alignment unavailable; using tick fallback: " + Reflection.unwrap(t));
+        }
+    }
+
+    /**
+     * Cheap geometry-only pass used after every rendered frame. It intentionally
+     * avoids server-list rescans, auth probing, favourite persistence checks and
+     * tooltip reconstruction. Those remain in the throttled/tick maintenance path.
+     */
+    private static void updateRowPositionsOnly(MultiplayerState state) throws Exception {
+        if (state == null || !ServerTabsEntrypoint.isServerListView(state.screen)) return;
+        Object listWidget = state.listWidget;
+        if (listWidget == null) return;
+
+        boolean finderOpen = ServerFinderClient.isOverlayOpen(state.screen);
+        boolean authEnabled = ToolState.authDetectionEnabled;
+        int totalWidth = authEnabled ? 20 * 4 + 3 * 3 : 20 * 3 + 3 * 2;
+        int centeredRowLeft = Math.max(6, (state.width - state.cachedRowWidth) / 2);
+        VisibleRange visible = visibleRange(state, listWidget);
+        int first = state.lastVisibleStart < 0 ? visible.first()
+                : visible.first() < 0 ? state.lastVisibleStart : Math.min(visible.first(), state.lastVisibleStart);
+        int last = Math.max(visible.last(), state.lastVisibleEnd);
+
+        for (int i = Math.max(0, first); i <= last && i < state.serverButtons.size(); i++) {
+            ServerButtons sb = state.serverButtons.get(i);
+            if (!visible.contains(i)) {
+                hideRowControls(sb);
+                continue;
+            }
+            ensureRowControls(state, sb);
+            int top = currentRowTop(listWidget, sb.entry, i, state.cachedListTop);
+            int controlY = currentRowControlY(listWidget, sb.entry, top);
+            boolean onScreen = controlY >= state.cachedListTop && controlY + 20 <= state.cachedListBottom;
+            boolean show = !finderOpen && onScreen;
+            boolean authShow = show && authEnabled;
+
+            if (!Objects.equals(sb.lastShow, show)) {
+                sb.lastShow = show;
+                Reflection.setBoolean(sb.notes, "visible", show);
+                Reflection.setBoolean(sb.favourite, "visible", show);
+                Reflection.setBoolean(sb.delete, "visible", show);
+                Reflection.setBoolean(sb.notes, "active", show);
+                Reflection.setBoolean(sb.favourite, "active", show);
+            }
+            if (!Objects.equals(sb.lastAuthShow, authShow)) {
+                sb.lastAuthShow = authShow;
+                Reflection.setBoolean(sb.auth, "visible", authShow);
+            }
+            boolean authActive = authShow && !ServerAuthService.isChecking(sb.endpoint);
+            if (!Objects.equals(sb.lastAuthActive, authActive)) {
+                sb.lastAuthActive = authActive;
+                Reflection.setBoolean(sb.auth, "active", authActive);
+            }
+            boolean favourite = Boolean.TRUE.equals(sb.lastFavourite);
+            boolean deleteActive = show && !favourite;
+            if (!Objects.equals(sb.lastDeleteActive, deleteActive)) {
+                sb.lastDeleteActive = deleteActive;
+                Reflection.setBoolean(sb.delete, "active", deleteActive);
+            }
+
+            int actualRowLeft = currentRowLeft(listWidget, sb.entry, state.cachedRowLeft);
+            boolean implausibleLeft = actualRowLeft < totalWidth + 12
+                    || actualRowLeft + Math.max(1, state.cachedRowWidth) > state.width + 4;
+            if (implausibleLeft) actualRowLeft = centeredRowLeft;
+            int rowRight = actualRowLeft + state.cachedRowWidth;
+            int notesX = Math.min(Math.max(6, state.width - totalWidth - 6),
+                    Math.max(rowRight + 16, state.cachedScrollbarX + 16));
+            int favX = notesX + 23;
+            int authX = favX + 23;
+            int deleteX = authEnabled ? authX + 23 : favX + 23;
+
+            if (sb.lastControlY != controlY || sb.lastNotesX != notesX) {
+                Reflection.setPosition(sb.notes, notesX, controlY);
+                sb.lastNotesX = notesX;
+            }
+            if (sb.lastControlY != controlY || sb.lastFavouriteX != favX) {
+                Reflection.setPosition(sb.favourite, favX, controlY);
+                sb.lastFavouriteX = favX;
+            }
+            if (sb.lastControlY != controlY || sb.lastAuthX != authX) {
+                Reflection.setPosition(sb.auth, authX, controlY);
+                sb.lastAuthX = authX;
+            }
+            if (sb.lastControlY != controlY || sb.lastDeleteX != deleteX) {
+                Reflection.setPosition(sb.delete, deleteX, controlY);
+                sb.lastDeleteX = deleteX;
+            }
+            sb.lastControlY = controlY;
+        }
+        state.lastVisibleStart = visible.first();
+        state.lastVisibleEnd = visible.last();
+    }
+
+    /**
+     * Returns a small candidate window around the viewport. Exact row bounds are
+     * still checked before controls are shown, but off-screen rows no longer pay
+     * for reflective position lookups every frame.
+     */
+    private static VisibleRange visibleRange(MultiplayerState state, Object listWidget) {
+        int total = state == null ? 0 : state.serverButtons.size();
+        if (total == 0 || listWidget == null) return VisibleRange.EMPTY;
+        int itemHeight = Math.max(1, Reflection.intValue(listWidget, "itemHeight", 36));
+        // Use Minecraft's authoritative row coordinates instead of deriving an
+        // index solely from getScrollAmount(). Some compatible list
+        // implementations expose a different scroll accessor and otherwise
+        // materialize only the rows visible when the category first opens.
+        int first = total;
+        int low = 0, high = total - 1;
+        while (low <= high) {
+            int middle = (low + high) >>> 1;
+            ServerButtons row = state.serverButtons.get(middle);
+            int top = currentRowTop(listWidget, row.entry, middle, state.cachedListTop);
+            if (top + itemHeight >= state.cachedListTop) {
+                first = middle;
+                high = middle - 1;
+            } else {
+                low = middle + 1;
+            }
+        }
+        if (first >= total) return VisibleRange.EMPTY;
+
+        int last = -1;
+        low = first;
+        high = total - 1;
+        while (low <= high) {
+            int middle = (low + high) >>> 1;
+            ServerButtons row = state.serverButtons.get(middle);
+            int top = currentRowTop(listWidget, row.entry, middle, state.cachedListTop);
+            if (top <= state.cachedListBottom) {
+                last = middle;
+                low = middle + 1;
+            } else {
+                high = middle - 1;
+            }
+        }
+        if (last < first) return VisibleRange.EMPTY;
+        return new VisibleRange(Math.max(0, first - 2), Math.min(total - 1, last + 2));
+    }
+
+    private static void hideRowControls(ServerButtons sb) {
+        if (sb == null || sb.notes == null) return;
+        if (!Boolean.FALSE.equals(sb.lastShow)) {
+            sb.lastShow = false;
+            Reflection.setBoolean(sb.notes, "visible", false);
+            Reflection.setBoolean(sb.favourite, "visible", false);
+            Reflection.setBoolean(sb.delete, "visible", false);
+            Reflection.setBoolean(sb.notes, "active", false);
+            Reflection.setBoolean(sb.favourite, "active", false);
+        }
+        if (!Boolean.FALSE.equals(sb.lastAuthShow)) {
+            sb.lastAuthShow = false;
+            Reflection.setBoolean(sb.auth, "visible", false);
+        }
+        if (!Boolean.FALSE.equals(sb.lastAuthActive)) {
+            sb.lastAuthActive = false;
+            Reflection.setBoolean(sb.auth, "active", false);
+        }
+        if (!Boolean.FALSE.equals(sb.lastDeleteActive)) {
+            sb.lastDeleteActive = false;
+            Reflection.setBoolean(sb.delete, "active", false);
+        }
     }
 
     private static void registerEventObject(Object event, Object listener) throws Exception {
@@ -272,67 +523,336 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         return out;
     }
 
+    /** All native per-row controls. rowWidgets intentionally remains Favourite/Delete pairs. */
+    static List<Object> allRowWidgets(Object screen) {
+        MultiplayerState state = STATES.get(screen);
+        if (state == null) return List.of();
+        ArrayList<Object> out = new ArrayList<>(state.serverButtons.size() * 4);
+        for (ServerButtons buttons : state.serverButtons) {
+            if (buttons.notes != null) out.add(buttons.notes);
+            if (buttons.favourite != null) out.add(buttons.favourite);
+            if (buttons.auth != null) out.add(buttons.auth);
+            if (buttons.delete != null) out.add(buttons.delete);
+        }
+        return out;
+    }
+
     static void rebuildRowButtons(Object screen) {
         MultiplayerState state = STATES.get(screen);
         if (state == null) return;
         try { createPerServerButtons(state); } catch (Throwable ignored) {}
     }
 
+    static void clearRowButtons(Object screen) {
+        MultiplayerState state = STATES.get(screen);
+        if (state == null) return;
+        clearPerServerButtons(state);
+        initializeRowButtonState(state);
+    }
+
     private static void updatePerServerButtons(MultiplayerState state) throws Exception {
         if (!ServerTabsEntrypoint.isServerListView(state.screen)) return;
+
+        long now = System.currentTimeMillis();
         boolean finderOpen = ServerFinderClient.isOverlayOpen(state.screen);
-        List<Object> entries = onlineServerEntries(state.screen);
-        if (entries.size() != state.serverButtons.size()) {
-            createPerServerButtons(state);
-            return;
-        }
+        boolean authEnabled = ToolState.authDetectionEnabled;
 
-        Object listWidget = Reflection.getField(state.screen, "serverSelectionList", "serverList");
-        int listTop = listWidget == null ? 32 : Reflection.intValue(listWidget, "getY", Reflection.intValue(listWidget, "y0", 32));
-        int listBottom = listWidget == null ? state.height - 64 : listTop + Reflection.intValue(listWidget, "getHeight", state.height - listTop - 64);
-        int footerTop = vanillaFooterTop(state);
-        listBottom = Math.min(listBottom, footerTop - 4);
-        int rowLeft = listWidget == null ? state.width / 2 - 154 : Reflection.intValue(listWidget, "getRowLeft", state.width / 2 - 154);
-        int rowWidth = listWidget == null ? 308 : Reflection.intValue(listWidget, "getRowWidth", 308);
-        int scrollbarX = listWidget == null ? rowLeft + rowWidth + 4 : Reflection.intValue(listWidget, "getScrollbarPosition", rowLeft + rowWidth + 4);
-
-        for (int i = 0; i < state.serverButtons.size(); i++) {
-            ServerButtons sb = state.serverButtons.get(i);
-            Object entry = entries.get(i);
-            Object data = getServerData(entry);
-            String endpoint = data == null ? "" : ServerFinderClient.ServerListBridge.serverEndpoint(data);
-            if (!ToolState.normalize(endpoint).equals(ToolState.normalize(sb.endpoint))) {
-                createPerServerButtons(state); return;
+        // The screen/category code explicitly rebuilds row controls whenever the
+        // list changes. Keep a low-frequency safety validation for changes made
+        // by other mods instead of rescanning every server row 20 times/second.
+        if (now >= state.nextStructureValidationAt) {
+            state.nextStructureValidationAt = now + 750L;
+            List<Object> entries = onlineServerEntries(state.screen);
+            if (entries.size() != state.serverButtons.size()) {
+                createPerServerButtons(state);
+                return;
             }
-            int top = currentRowTop(listWidget, entry, i, listTop);
-            int controlY = currentRowControlY(listWidget, entry, top);
-            boolean onScreen = controlY >= listTop && controlY + 20 <= listBottom;
-            boolean show = !finderOpen && onScreen;
-            Reflection.setBoolean(sb.favourite, "visible", show);
-            Reflection.setBoolean(sb.delete, "visible", show);
-            Reflection.setBoolean(sb.favourite, "active", show);
-            boolean fav = isFavourite(data);
-            Reflection.setBoolean(sb.delete, "active", show && !fav);
-            Reflection.setButtonText(sb.favourite, fav ? "★" : "☆");
-            Reflection.setButtonText(sb.delete, fav ? "Locked" : "Delete");
-
-            // Keep row controls in one deterministic column immediately to the
-            // RIGHT of Minecraft's centred server row, away from the Server
-            // Seeker navigation and bulk-action rail on the left.
-            int totalWidth = 22 + 4 + 48;
-            int actualRowLeft = currentRowLeft(listWidget, entry, rowLeft);
-            int centeredRowLeft = Math.max(6, (state.width - rowWidth) / 2);
-            boolean implausibleLeft = actualRowLeft < totalWidth + 12
-                    || actualRowLeft + Math.max(1, rowWidth) > state.width + 4;
-            if (implausibleLeft) actualRowLeft = centeredRowLeft;
-            int rowRight = actualRowLeft + rowWidth;
-            int favX = Math.min(Math.max(6, state.width - totalWidth - 6),
-                    Math.max(rowRight + 16, scrollbarX + 16));
-            int deleteX = favX + 26;
-            Reflection.setPosition(sb.favourite, favX, controlY);
-            Reflection.setPosition(sb.delete, deleteX, controlY);
+            for (int i = 0; i < entries.size(); i++) {
+                Object data = getServerData(entries.get(i));
+                String endpoint = data == null ? "" : ServerFinderClient.ServerListBridge.serverEndpoint(data);
+                if (!ToolState.normalize(endpoint).equals(ToolState.normalize(state.serverButtons.get(i).endpoint))) {
+                    createPerServerButtons(state);
+                    return;
+                }
+            }
         }
-        protectVanillaDeleteButton(state);
+
+        Object listWidget = state.listWidget;
+        if (listWidget == null) {
+            listWidget = Reflection.getField(state.screen, "serverSelectionList", "serverList");
+            state.listWidget = listWidget;
+            state.geometryDirty = true;
+        }
+
+        boolean geometryRefresh = state.geometryDirty || now >= state.nextGeometryRefreshAt;
+        if (geometryRefresh) {
+            state.nextGeometryRefreshAt = now + 1_000L;
+            state.geometryDirty = false;
+            state.cachedListTop = listWidget == null ? 32
+                    : Reflection.intValue(listWidget, "getY", Reflection.intValue(listWidget, "y0", 32));
+            int rawBottom = listWidget == null ? state.height - 64
+                    : state.cachedListTop + Reflection.intValue(listWidget, "getHeight", state.height - state.cachedListTop - 64);
+            state.cachedListBottom = Math.min(rawBottom, vanillaFooterTop(state) - 4);
+            state.cachedRowLeft = listWidget == null ? state.width / 2 - 154
+                    : Reflection.intValue(listWidget, "getRowLeft", state.width / 2 - 154);
+            state.cachedRowWidth = listWidget == null ? 308 : Reflection.intValue(listWidget, "getRowWidth", 308);
+            state.cachedScrollbarX = listWidget == null ? state.cachedRowLeft + state.cachedRowWidth + 4
+                    : Reflection.intValue(listWidget, "getScrollbarPosition", state.cachedRowLeft + state.cachedRowWidth + 4);
+        }
+
+        double scroll = listWidget == null ? 0.0 : Reflection.doubleValue(listWidget, "getScrollAmount", 0.0);
+        // Always keep a tick-rate fallback for row positioning. A separate
+        // after-render pass below updates the same coordinates every rendered
+        // frame, but this path still keeps controls aligned if another mod or
+        // Fabric version does not expose ScreenEvents.afterRender.
+        boolean positionRefresh = true;
+        state.lastScrollAmount = scroll;
+        state.lastFinderOpen = finderOpen;
+        state.lastAuthEnabled = authEnabled;
+
+        int totalWidth = authEnabled ? 20 * 4 + 3 * 3 : 20 * 3 + 3 * 2;
+        int centeredRowLeft = Math.max(6, (state.width - state.cachedRowWidth) / 2);
+        VisibleRange visible = visibleRange(state, listWidget);
+        int first = state.lastVisibleStart < 0 ? visible.first()
+                : visible.first() < 0 ? state.lastVisibleStart : Math.min(visible.first(), state.lastVisibleStart);
+        int last = Math.max(visible.last(), state.lastVisibleEnd);
+
+        for (int i = Math.max(0, first); i <= last && i < state.serverButtons.size(); i++) {
+            ServerButtons sb = state.serverButtons.get(i);
+            if (!visible.contains(i)) {
+                hideRowControls(sb);
+                continue;
+            }
+            ensureRowControls(state, sb);
+
+            boolean fav = ServerCategoryStore.isFavourite(sb.endpoint);
+            if (sb.lastFavourite == null || sb.lastFavourite != fav) {
+                sb.lastFavourite = fav;
+                Reflection.setButtonText(sb.favourite, fav ? "★" : "☆");
+                Reflection.setTooltip(sb.favourite, fav ? "Unfavourite" : "Favourite");
+                Reflection.setTooltip(sb.delete, fav ? "Delete (unfavourite first)" : "Delete");
+            }
+
+            String authLabel = authRowLabel(sb.endpoint);
+            String authTooltip = authRowTooltip(sb.endpoint);
+            if (!authLabel.equals(sb.lastAuthLabel)) {
+                sb.lastAuthLabel = authLabel;
+                Reflection.setButtonText(sb.auth, authLabel);
+            }
+            if (!authTooltip.equals(sb.lastAuthTooltip)) {
+                sb.lastAuthTooltip = authTooltip;
+                Reflection.setTooltip(sb.auth, authTooltip);
+            }
+
+            if (positionRefresh || sb.lastShow == null) {
+                int top = currentRowTop(listWidget, sb.entry, i, state.cachedListTop);
+                int controlY = currentRowControlY(listWidget, sb.entry, top);
+                boolean onScreen = controlY >= state.cachedListTop && controlY + 20 <= state.cachedListBottom;
+                boolean show = !finderOpen && onScreen;
+                boolean authShow = show && authEnabled;
+                boolean deleteActive = show && !fav;
+
+                if (!Objects.equals(sb.lastShow, show)) {
+                    sb.lastShow = show;
+                    Reflection.setBoolean(sb.notes, "visible", show);
+                    Reflection.setBoolean(sb.favourite, "visible", show);
+                    Reflection.setBoolean(sb.delete, "visible", show);
+                    Reflection.setBoolean(sb.notes, "active", show);
+                    Reflection.setBoolean(sb.favourite, "active", show);
+                }
+                boolean authActive = authShow && !ServerAuthService.isChecking(sb.endpoint);
+                if (!Objects.equals(sb.lastAuthShow, authShow)) {
+                    sb.lastAuthShow = authShow;
+                    Reflection.setBoolean(sb.auth, "visible", authShow);
+                }
+                if (!Objects.equals(sb.lastAuthActive, authActive)) {
+                    sb.lastAuthActive = authActive;
+                    Reflection.setBoolean(sb.auth, "active", authActive);
+                }
+                if (!Objects.equals(sb.lastDeleteActive, deleteActive)) {
+                    sb.lastDeleteActive = deleteActive;
+                    Reflection.setBoolean(sb.delete, "active", deleteActive);
+                }
+
+                int actualRowLeft = currentRowLeft(listWidget, sb.entry, state.cachedRowLeft);
+                boolean implausibleLeft = actualRowLeft < totalWidth + 12
+                        || actualRowLeft + Math.max(1, state.cachedRowWidth) > state.width + 4;
+                if (implausibleLeft) actualRowLeft = centeredRowLeft;
+                int rowRight = actualRowLeft + state.cachedRowWidth;
+                int notesX = Math.min(Math.max(6, state.width - totalWidth - 6),
+                        Math.max(rowRight + 16, state.cachedScrollbarX + 16));
+                int favX = notesX + 23;
+                int authX = favX + 23;
+                int deleteX = authEnabled ? authX + 23 : favX + 23;
+
+                if (sb.lastControlY != controlY || sb.lastNotesX != notesX) {
+                    Reflection.setPosition(sb.notes, notesX, controlY);
+                    sb.lastNotesX = notesX;
+                }
+                if (sb.lastControlY != controlY || sb.lastFavouriteX != favX) {
+                    Reflection.setPosition(sb.favourite, favX, controlY);
+                    sb.lastFavouriteX = favX;
+                }
+                if (sb.lastControlY != controlY || sb.lastAuthX != authX) {
+                    Reflection.setPosition(sb.auth, authX, controlY);
+                    sb.lastAuthX = authX;
+                }
+                if (sb.lastControlY != controlY || sb.lastDeleteX != deleteX) {
+                    Reflection.setPosition(sb.delete, deleteX, controlY);
+                    sb.lastDeleteX = deleteX;
+                }
+                sb.lastControlY = controlY;
+            } else {
+                // Favourite state can change without a list rebuild in unusual
+                // integrations. Keep Delete's active state correct without doing
+                // any geometry work.
+                boolean deleteActive = Boolean.TRUE.equals(sb.lastShow) && !fav;
+                if (!Objects.equals(sb.lastDeleteActive, deleteActive)) {
+                    sb.lastDeleteActive = deleteActive;
+                    Reflection.setBoolean(sb.delete, "active", deleteActive);
+                }
+            }
+        }
+        state.lastVisibleStart = visible.first();
+        state.lastVisibleEnd = visible.last();
+        materializeNextRowControl(state);
+    }
+
+    /**
+     * Completes one off-screen row per tick. Visible rows are still created
+     * immediately, while this bounded fallback guarantees every saved row has
+     * controls even when another mod supplies unusual list geometry.
+     */
+    private static void materializeNextRowControl(MultiplayerState state) throws Exception {
+        while (state.nextMaterializationIndex < state.serverButtons.size()) {
+            ServerButtons next = state.serverButtons.get(state.nextMaterializationIndex++);
+            if (next.notes == null) {
+                ensureRowControls(state, next);
+                return;
+            }
+        }
+    }
+
+    private static void openNotes(MultiplayerState state, ServerButtons sb) {
+        try {
+            Class<?> normalizer = Class.forName("dev.zazu.servernotes.util.ServerAddressNormalizer");
+            Method normalize = normalizer.getMethod("normalize", String.class);
+            Object identity = normalize.invoke(null, sb.endpoint);
+
+            Class<?> bootstrap = Class.forName("dev.zazu.servernotes.client.ZazusServerNotesClient");
+            Object app = bootstrap.getMethod("app").invoke(null);
+            Object store = Reflection.invokeQuiet(app, "store");
+            Method getOrCreate = Reflection.findCompatibleMethod(store.getClass(), "getOrCreate", identity);
+            if (getOrCreate == null) throw new NoSuchMethodException("ServerProfileStore.getOrCreate(ServerIdentity)");
+            Object profile = getOrCreate.invoke(store, identity);
+            Object keyValue = Reflection.invokeQuiet(profile, "key");
+            String key = keyValue == null ? "" : keyValue.toString();
+            if (key.isBlank()) throw new IllegalStateException("Server Notes profile key is blank");
+
+            Class<?> notesScreen = Class.forName("dev.zazu.servernotes.ui.ServerNotesScreen");
+            Object screen = null;
+            for (Constructor<?> constructor : notesScreen.getConstructors()) {
+                Class<?>[] types = constructor.getParameterTypes();
+                if (types.length != 2 || types[1] != String.class) continue;
+                if (state.screen != null && !types[0].isInstance(state.screen)) continue;
+                screen = constructor.newInstance(state.screen, key);
+                break;
+            }
+            if (screen == null) throw new NoSuchMethodException("ServerNotesScreen(Screen,String)");
+            ScreenCompat.setScreen(state.client, screen);
+        } catch (Throwable t) {
+            System.err.println("[Zazu's Server Seeker] Could not open Server Notes for " + sb.endpoint + ": " + Reflection.unwrap(t));
+        }
+    }
+
+    private static Object makeNotesButton(int x, int y, Consumer<Object> pressed) throws Exception {
+        return makeSpriteButton(x, y, "Notes", "book", "N", pressed);
+    }
+
+    private static Object makeDeleteButton(int x, int y, Consumer<Object> pressed) throws Exception {
+        return makeSpriteButton(x, y, "Delete", "trash", "X", pressed);
+    }
+
+    private static Object makeSpriteButton(int x, int y, String label, String spritePath,
+                                           String fallbackLabel, Consumer<Object> pressed) throws Exception {
+        try {
+            Class<?> spriteButtonClass = Class.forName("net.minecraft.client.gui.components.SpriteIconButton");
+            Class<?> buttonClass = Class.forName("net.minecraft.client.gui.components.Button");
+            Class<?> onPressClass = null;
+            for (Class<?> nested : buttonClass.getDeclaredClasses()) {
+                if (nested.getSimpleName().equals("OnPress")) { onPressClass = nested; break; }
+            }
+            if (onPressClass == null) throw new ClassNotFoundException("Button.OnPress");
+            Object callback = Proxy.newProxyInstance(onPressClass.getClassLoader(), new Class<?>[]{onPressClass}, (proxy, method, args) -> {
+                if (method.getDeclaringClass() == Object.class) return Reflection.objectMethod(proxy, method, args);
+                pressed.accept(args != null && args.length > 0 ? args[0] : null);
+                return null;
+            });
+            Object message = Reflection.literal(label);
+            Method builderMethod = Reflection.findStaticCompatible(spriteButtonClass, "builder", message, callback, Boolean.TRUE);
+            if (builderMethod == null) throw new NoSuchMethodException("SpriteIconButton.builder(Component, OnPress, boolean)");
+            Object builder = builderMethod.invoke(null, message, callback, true);
+            Method size = Reflection.findCompatibleMethod(builder.getClass(), "size", 20, 20);
+            if (size != null) size.invoke(builder, 20, 20);
+            Class<?> identifierClass = Class.forName("net.minecraft.resources.Identifier");
+            Object sprite = identifierClass.getMethod("fromNamespaceAndPath", String.class, String.class)
+                    .invoke(null, "zazus_server_notes", spritePath);
+            Method spriteMethod = Reflection.findCompatibleMethod(builder.getClass(), "sprite", sprite, 14, 14);
+            if (spriteMethod == null) throw new NoSuchMethodException("SpriteIconButton.Builder.sprite(Identifier,int,int)");
+            spriteMethod.invoke(builder, sprite, 14, 14);
+            Method tooltip = Reflection.findCompatibleMethod(builder.getClass(), "tooltip", message);
+            if (tooltip != null) tooltip.invoke(builder, message);
+            Method build = Reflection.findMethod(builder.getClass(), "build", 0);
+            if (build == null) throw new NoSuchMethodException("SpriteIconButton.Builder.build()");
+            Object button = build.invoke(builder);
+            Reflection.setPosition(button, x, y);
+            return button;
+        } catch (Throwable ignored) {
+            Object fallback = Reflection.makeButton(fallbackLabel, x, y, 20, 20, pressed);
+            Reflection.setTooltip(fallback, label);
+            return fallback;
+        }
+    }
+
+    private static void recheckAuth(MultiplayerState state, ServerButtons sb) {
+        if (state == null || sb == null || !ToolState.authDetectionEnabled || ServerAuthService.isChecking(sb.endpoint)) return;
+        int protocol = ToolState.protocolFor(sb.endpoint);
+        boolean started = ServerAuthService.recheckAsync(state.client, sb.endpoint, protocol, () -> {
+            sb.lastAuthLabel = "";
+            sb.lastAuthTooltip = "";
+            sb.lastAuthActive = null;
+            state.geometryDirty = true;
+            try { updatePerServerButtons(state); }
+            catch (Throwable t) {
+                System.err.println("[Zazu's Server Seeker] Could not refresh auth button after recheck: " + Reflection.unwrap(t));
+            }
+        });
+        if (!started) return;
+        sb.lastAuthLabel = "";
+        sb.lastAuthTooltip = "";
+        sb.lastAuthActive = null;
+        state.geometryDirty = true;
+        try { updatePerServerButtons(state); }
+        catch (Throwable t) {
+            System.err.println("[Zazu's Server Seeker] Could not show auth recheck state: " + Reflection.unwrap(t));
+        }
+    }
+
+    private static String authRowLabel(String endpoint) {
+        if (!ToolState.authDetectionEnabled) return "-";
+        return ServerAuthService.shortLabel(endpoint);
+    }
+
+    private static String authRowTooltip(String endpoint) {
+        if (!ToolState.authDetectionEnabled) return "Authentication: Disabled";
+        String label = ServerAuthService.shortLabel(endpoint);
+        return switch (label) {
+            case "M" -> "Authentication: Microsoft — Click to recheck";
+            case "C" -> "Authentication: Cracked — Click to recheck";
+            case "?" -> "Authentication: Unknown — Click to recheck";
+            case "…" -> "Authentication: Checking…";
+            default -> "Authentication: Not checked — Click to check";
+        };
     }
 
     private static int vanillaFooterTop(MultiplayerState state) throws Exception {
@@ -376,7 +896,7 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
     private static int currentRowTop(Object listWidget, Object entry, int index, int fallbackTop) {
         // AbstractSelectionList#getRowTop(index) is the authoritative layout
         // coordinate and already includes scrolling. Prefer it over entry fields,
-        // which some 26.2 wrappers leave at zero until render time.
+        // which some compatible list wrappers leave at zero until render time.
         if (listWidget != null) {
             Method rowTop = Reflection.findMethod(listWidget.getClass(), "getRowTop", 1);
             if (rowTop != null) {
@@ -445,9 +965,10 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
             String updated = removingFavourite && name.startsWith(FAV_PREFIX)
                     ? name.substring(FAV_PREFIX.length()) : removingFavourite ? name : FAV_PREFIX + name;
             ServerFinderClient.ServerListBridge.setServerName(server, updated);
-            // Keep the current screen row in sync before any category refresh.
-            // Otherwise savedFromScreen can see its stale starred name and
-            // migrate the endpoint straight back into Favourites.
+            // Keep every source-list and rendered-row copy in sync before any
+            // category refresh. A filtered screen can hold more than one
+            // ServerData instance for the same endpoint.
+            ServerListAccess.synchronizeServerName(state.screen, sb.endpoint, updated);
             if (sb.serverData != server) ServerFinderClient.ServerListBridge.setServerName(sb.serverData, updated);
             ServerFinderClient.ServerListBridge.save(list);
             ServerCategoryStore.setFavourite(sb.endpoint, !removingFavourite);
@@ -552,15 +1073,6 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         catch (Throwable t) { System.err.println("[Zazu's Server Seeker] Could not open finder: " + Reflection.unwrap(t)); }
     }
 
-    private static void sortSavedServersFavouritesFirst(Object client) throws Exception {
-        Object list = ServerFinderClient.ServerListBridge.createLoadedList(client);
-        List<Object> servers = ServerFinderClient.ServerListBridge.servers(list);
-        if (servers instanceof ArrayList<?> || !servers.getClass().getName().contains("Immutable")) {
-            servers.sort(Comparator.comparing(server -> !isFavourite(server)));
-            ServerFinderClient.ServerListBridge.save(list);
-        }
-    }
-
     private static void syncViaFabricPlusForSelected(MultiplayerState state) {
         if (!ViaFabricPlusBridge.isAvailable()) return;
         try {
@@ -638,7 +1150,12 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         try {
             Object selected = Reflection.invokeQuiet(state.screen, "getSelected");
             Object data = selected == null ? null : getServerData(selected);
-            boolean fav = data != null && isFavourite(data);
+            String endpoint = data == null ? "" : ServerFinderClient.ServerListBridge.serverEndpoint(data);
+            boolean fav = !endpoint.isBlank() && ServerCategoryStore.isFavourite(endpoint);
+            String protectionKey = ToolState.normalize(endpoint) + "|" + fav;
+            if (protectionKey.equals(state.lastDeleteProtectionKey)) return;
+            state.lastDeleteProtectionKey = protectionKey;
+
             for (Object widget : Reflection.widgets(state.screen)) {
                 if (widget == state.deleteAllButton) continue;
                 String label = widgetLabel(widget).toLowerCase(Locale.ROOT);
@@ -706,20 +1223,34 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         final Object client, screen;
         int width, height;
         final List<ServerButtons> serverButtons = new ArrayList<>();
-        Object finderButton, deleteAllButton, undoButton;
-        boolean disabledVanillaDelete, loggedTickFailure, loggedViaFailure;
-        String lastViaEndpoint = "";
-        long deleteAllArmedUntil;
+        Object finderButton, deleteAllButton, undoButton, listWidget;
+        boolean disabledVanillaDelete, loggedTickFailure, loggedRenderFailure, loggedViaFailure, geometryDirty = true;
+        boolean lastFinderOpen, lastAuthEnabled;
+        String lastViaEndpoint = "", lastDeleteProtectionKey = "";
+        long deleteAllArmedUntil, nextStructureValidationAt, nextGeometryRefreshAt, nextSelectionSyncAt;
         boolean scannedDeleteMode;
+        double lastScrollAmount = Double.NaN;
+        int cachedListTop = 32, cachedListBottom, cachedRowLeft, cachedRowWidth = 308, cachedScrollbarX;
+        int lastVisibleStart = -1, lastVisibleEnd = -1, nextMaterializationIndex;
         MultiplayerState(Object client, Object screen, int width, int height) {
             this.client = client; this.screen = screen; this.width = width; this.height = height;
+            this.cachedListBottom = Math.max(32, height - 64);
         }
     }
 
     static final class ServerButtons {
         final Object entry, serverData;
         final String endpoint;
-        Object favourite, delete;
+        Object notes, favourite, auth, delete;
+        Boolean lastShow, lastAuthShow, lastAuthActive, lastDeleteActive, lastFavourite;
+        String lastAuthLabel = "", lastAuthTooltip = "";
+        int lastNotesX = Integer.MIN_VALUE, lastFavouriteX = Integer.MIN_VALUE;
+        int lastAuthX = Integer.MIN_VALUE, lastDeleteX = Integer.MIN_VALUE, lastControlY = Integer.MIN_VALUE;
         ServerButtons(Object entry, Object serverData, String endpoint) { this.entry = entry; this.serverData = serverData; this.endpoint = endpoint; }
+    }
+
+    private record VisibleRange(int first, int last) {
+        private static final VisibleRange EMPTY = new VisibleRange(-1, -1);
+        boolean contains(int index) { return first >= 0 && index >= first && index <= last; }
     }
 }

@@ -6,7 +6,7 @@ Security fixes are provided for the newest published release of Zazu's Server Se
 
 ## Reporting a vulnerability
 
-Please use the repository's [private security-advisory form](https://github.com/Zazuzin/Zazus-Server-Scanner/security/advisories/new) rather than opening a public issue. Include the affected version, reproduction steps, expected impact and any relevant logs with API keys and access tokens removed.
+Please use the repository's [private security-advisory form](https://github.com/Zazuzin/Zazus-Server-Seeker/security/advisories/new) rather than opening a public issue. Include the affected version, reproduction steps, expected impact and any relevant logs with API keys and access tokens removed.
 
 Do not publish credentials, private server addresses or another person's personal information in an issue or log attachment.
 

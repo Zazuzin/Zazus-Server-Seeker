@@ -6,8 +6,13 @@ Contributions and reproducible bug reports are welcome.
 
 - Minecraft Java Edition 26.2
 - Fabric Loader 0.19.3 or newer compatible release
-- Fabric API 0.157.0+26.2
-- JDK 21 or newer for the dependency-free build and tests
+- Fabric API 0.158.0+26.2
+- JDK 25
+- Gradle 9.5.1 (the wrapper is pinned to this version)
+- Fabric Loom 1.17.12
+
+Minecraft 26.2 is distributed to Loom as a non-obfuscated development artifact,
+so this project intentionally does not apply a mappings layer or run `remapJar`.
 
 Run:
 
