@@ -1,7 +1,6 @@
 package dev.zazu.servernotes.ui;
 
 import dev.zazu.servernotes.client.ZazusServerNotesClient;
-import dev.zazu.servernotes.model.ServerNote;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;

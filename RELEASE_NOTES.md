@@ -1,15 +1,29 @@
-# Zazu's Server Seeker 1.0.0
+# Zazu's Server Seeker 1.1.8 for Minecraft 26.2
 
-The first stable release for Minecraft 26.2.
+This update focuses on making the Multiplayer screen reliable with large server
+lists and other client mods installed.
 
-## What's included
+## What changed
 
-- Multi-source Finder with Verified and Quick searches, filters and Auto Add.
-- Favourites, Servers, Scanned Servers and Recent Servers categories.
-- Fast server-row controls for Notes, Favourites, auth checks and deletion.
-- Microsoft/cracked authentication detection with manual rechecks.
-- Server Notes with notes, locations and saved player history.
-- Sequential Auto Join with whitelist cleanup, failure notes and scanned-server promotion.
-- Optional ViaFabricPlus and BreakBlocks contribution support.
+- Notes, Favourite, Auth and Delete row controls work consistently.
+- Double-clicking a saved server joins it again.
+- Refresh stays in its original footer position without overlapping Back,
+  including after Auto Join returns.
+- Auto Join continues through failed servers and promotes a scanned server
+  after a stable connection.
+- Finder-owned servers can be removed after confirmed whitelist or required-mod
+  rejections. Current Forge, NeoForge, Fabric and Quilt loader messages are
+  recognised. Favourites, manual servers, timeouts and version mismatches remain
+  protected.
+- Large transferred `servers.dat` lists are recovered into Scanned Servers
+  when their Finder-generated names can be identified.
+- Server Seeker configuration, Server Notes and backups now live together under
+  `config/zazus-server-seeker/`.
+- BreakBlocks pages and provider results are shuffled for each search so users
+  are less likely to scan the same servers in the same order.
+- Paid BreakBlocks API tiers can use all available result pages reported by the
+  API. Verified-search and stable-connection contributions remain enabled and
+  queued safely.
 
-Existing servers, settings, favourites and Server Notes data are kept when updating.
+Existing server lists, settings, favourites, notes, categories, auth results,
+recent servers and contribution state are preserved when upgrading.

@@ -22,7 +22,7 @@ jobs:
           java-version: "25"
 
       - name: Set up Gradle 9.5.1
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: "9.5.1"
 
@@ -31,6 +31,9 @@ jobs:
 
       - name: Run regression suite
         run: ./verify.sh
+
+      - name: Run compatibility suite
+        run: ./release_compatibility_tests.sh
 
       - name: Upload verified JAR
         uses: actions/upload-artifact@v7

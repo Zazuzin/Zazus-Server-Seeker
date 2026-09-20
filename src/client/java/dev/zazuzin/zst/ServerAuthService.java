@@ -31,7 +31,7 @@ final class ServerAuthService {
     private static final int MAX_PACKET_BYTES = 2 * 1024 * 1024;
     private static final int MAX_LOGIN_PACKETS = 8;
     private static final int MAX_QUEUED = 256;
-    private static final Path FILE = ToolState.configDir().resolve("zazus-server-auth.properties");
+    private static final Path FILE = ToolState.configDir().resolve("server-auth.properties");
     private static final ConcurrentHashMap<String, Entry> CACHE = new ConcurrentHashMap<>();
     private static final Set<String> IN_FLIGHT = ConcurrentHashMap.newKeySet();
     private static final AtomicInteger THREAD_NUMBER = new AtomicInteger();
@@ -56,15 +56,6 @@ final class ServerAuthService {
     static {
         EXECUTOR.allowCoreThreadTimeOut(true);
         load();
-    }
-
-    static Type typeFor(String endpoint) {
-        Entry entry = CACHE.get(normalize(endpoint));
-        return entry == null ? Type.UNKNOWN : entry.type();
-    }
-
-    static boolean hasResult(String endpoint) {
-        return CACHE.containsKey(normalize(endpoint));
     }
 
     static boolean isChecking(String endpoint) {
@@ -102,11 +93,6 @@ final class ServerAuthService {
         } catch (Throwable ignored) {
             return String.valueOf(entry.checkedAt());
         }
-    }
-
-    static String detailFor(String endpoint) {
-        Entry entry = CACHE.get(normalize(endpoint));
-        return entry == null ? "" : Objects.toString(entry.detail(), "");
     }
 
     static boolean ensureAsync(Object client, String endpoint, int protocol, Runnable onUpdated) {
@@ -466,8 +452,7 @@ final class ServerAuthService {
 
     private static void rethrowIfFatal(Throwable failure) {
         Throwable root = Reflection.unwrap(failure);
-        if (root instanceof ThreadDeath death) throw death;
-        if (root instanceof VirtualMachineError fatal) throw fatal;
+        if (root instanceof Error fatal) throw fatal;
     }
 
     private record Packet(int id, byte[] body) {}

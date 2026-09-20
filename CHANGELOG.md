@@ -1,3 +1,158 @@
+# 1.1.8
+
+## Minecraft 26.2 reliability and discovery update
+
+- Fixed saved-server Notes, Favourite, Auth and Delete controls and restored
+  native double-click joining.
+- Kept Refresh in its original footer position without overlapping Back,
+  including after Auto Join returns to Multiplayer.
+- Consolidated Server Seeker configuration, Server Notes and backups under
+  `config/zazus-server-seeker/` with non-overwriting legacy migration.
+- Recovered bulk Finder-created entries from a transferred `servers.dat` into
+  Scanned Servers and reduced large-list UI and ping overhead.
+- Expanded conservative automatic cleanup for Finder-owned whitelist,
+  required-client-mod, invalid-address and repeated unreachable failures while
+  protecting favourites, manual entries, timeouts and version mismatches.
+- Added current Forge, NeoForge, Fabric and Quilt loader-rejection wording to
+  required-mod cleanup detection.
+- Randomized BreakBlocks page traversal and result order. Authenticated paid
+  tiers can use every available result page; public limits remain unchanged.
+- Preserved verified-search and stable-connection contributions to BreakBlocks,
+  including queued retries and audit statistics.
+
+# 1.0.1-rc.11
+
+## Fabric click callback crash repair
+
+- Removes the obsolete reflective `afterMouseClick` recovery listener that
+  returned `null` to Fabric API 0.158.0's boolean callback.
+- Prevents the resulting `Boolean.booleanValue()` null-unboxing exception from
+  aborting every ordinary server-row click.
+- Keeps the working allow-click routing for Notes, Favourite, Auth, Delete,
+  Delete All and Undo, while leaving normal rows on Minecraft's native path.
+- Retains RC.10's entry-level double-click fallback and native `join()` action.
+
+# 1.0.1-rc.10
+
+## Server-entry double-click repair
+
+- Moves the fallback into Minecraft 26.2's actual
+  `OnlineServerEntry.mouseClicked` method instead of observing clicks from the
+  surrounding Multiplayer screen.
+- Keeps ordinary row clicks completely on Minecraft's native path and calls the
+  entry's own `join()` method only when that exact entry receives a second
+  primary click within 500 milliseconds without Minecraft marking it itself.
+- Preserves whitelist cleanup and ViaFabricPlus connection context immediately
+  before either the native or fallback entry join.
+- Removes the RC.7-RC.9 screen-coordinate, selected-row, post-click and footer
+  button workarounds.
+
+# 1.0.1-rc.9
+
+## Native server-entry double-click join
+
+- Uses Minecraft 26.2's actual saved-server entry `join()` action for the
+  second click, matching the built-in double-click branch and logo play button.
+- Detects both clicks in the working primary mouse listener instead of depending
+  on the unreliable post-click callback or screen-level selected-row lookup.
+- Resolves the live entry from the same row geometry used by the working Notes,
+  Favourite, Auth and Delete controls.
+- Leaves the first click on Minecraft's normal selection path and intercepts
+  only the confirmed second click on the same server.
+
+# 1.0.1-rc.8
+
+## Authoritative post-click server joining
+
+- Processes saved-server double-clicks after Minecraft has updated the selected
+  row instead of relying on the entry's unreliable pre-click hit test.
+- Resolves the clicked server from the same live row coordinates used by the
+  working Notes, Favourite, Auth and Delete controls.
+- Confirms the clicked endpoint matches Minecraft's selected endpoint before
+  activating the existing Join Server action.
+- Preserves single-click selection, row controls and the server-logo play icon.
+
+# 1.0.1-rc.7
+
+## Saved-server double-click joining
+
+- Restores joining a saved server by double-clicking its row in Servers,
+  Scanned Servers, Favourites and Recent Servers.
+- Recognises two primary clicks on the same server within 500 milliseconds and
+  activates Minecraft's existing Join Server control.
+- Leaves Notes, Favourite, Auth, Delete, the row play icon and single-click
+  selection on their existing native paths.
+
+# 1.0.1-rc.6
+
+## Paid BreakBlocks pagination
+
+- Reads BreakBlocks' confirmed `authed` and `patreon_tier` response fields and
+  shows the returned subscription tier in Finder and Contribution Stats.
+- Authenticated paid API tiers use the response's `filtered` count to traverse
+  every available result page in randomized, no-repeat order.
+- Public searches retain their existing ten-page and offline-only two-page
+  limits; HTTP 401/403 responses still fall back safely to anonymous access.
+- Keeps verified-server and stable-connected-server BreakBlocks contributions
+  unchanged, including the persistent queue, retries and audit statistics.
+
+# 1.0.1-rc.5
+
+## Diversified server discovery
+
+- Searches BreakBlocks pages in a fresh randomized, no-repeat order instead of
+  making every client begin with the same page.
+- Shuffles each provider response before filtering, verification, display,
+  Auto Add and contribution processing.
+- Keeps BreakBlocks' public ten-page limit and two-page offline-only limit,
+  while retaining local duplicate, blocked and previously-added protections.
+
+# 1.0.1-rc.4
+
+## Reliable saved-server row controls
+
+- Routes Notes, Favourite, Auth, Delete, Delete All and Undo clicks through
+  Minecraft's real button event handling instead of duplicating its raw mouse
+  button test.
+- Adds a guarded post-click recovery path for Auto Join same-screen rebuilds,
+  without allowing one physical click to invoke a control twice.
+- Retains RC.3's live Refresh fitting and ten-pixel gap from Back.
+
+# 1.0.1-rc.3
+
+## Auto Join footer return
+
+- Re-fits Refresh using the live replacement Back/Delete widgets after Auto
+  Join returns from a failed connection.
+- Carries the last safe footer bounds across same-screen re-initialisation and
+  preserves the normal ten-pixel gap between Refresh and Back.
+
+# 1.0.1-rc.2
+
+## Refresh footer placement
+
+- Restored Refresh to its original footer slot between Delete and Back.
+- Fits Refresh against the live neighbouring button bounds after resize and GUI
+  scale changes, retaining a four-pixel gap so it cannot overlap Back.
+
+# 1.0.1-rc.1
+
+## Minecraft 26.2 controls, categories and cleanup fixes
+
+- Fixed the one-based SDL primary mouse-button check used by Notes, Favourite,
+  Auth, Delete, Delete All, Undo, Auto Join cancel and custom controls.
+- Suppresses native Refresh duplicates rebuilt by Minecraft.
+- Recovers bulk Finder-created entries from a `servers.dat`-only transfer into
+  Scanned Servers and cancels hidden hub pings for the complete imported list.
+- Consolidates Server Seeker configuration, Server Notes and backups under
+  `config/zazus-server-seeker/` with non-overwriting legacy migration.
+- Expands automatic cleanup with conservative Finder-only whitelist,
+  required-mod, invalid-address/DNS and repeated-unreachable rules.
+- Never treats timeouts or client/version mismatches as cleanup failures, and
+  always protects favourites and manually added servers for ViaFabricPlus use.
+- Adds persistent Recently Removed reasons, timestamps and restore controls,
+  while retaining Undo and pre-removal `servers.dat` backups.
+
 # 1.0.0
 
 ## Stable Minecraft 26.2 release

@@ -13,6 +13,9 @@
     "issues": "https://github.com/Zazuzin/Zazus-Server-Seeker/issues"
   },
   "environment": "client",
+  "mixins": [
+    "zazus-server-seeker.mixins.json"
+  ],
   "entrypoints": {
     "client": [
       "dev.zazu.servernotes.client.ZazusServerNotesClient",

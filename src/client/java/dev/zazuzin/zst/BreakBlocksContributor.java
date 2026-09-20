@@ -173,6 +173,7 @@ final class BreakBlocksContributor {
         }
 
         String apiKey = ToolState.breakBlocksApiKey();
+        BreakBlocksAccount.configure(apiKey);
         long quotaDelayMs = BreakBlocksRateBudget.contributionDelayMillis(!apiKey.isBlank());
         if (quotaDelayMs > 0L) {
             long waitSeconds = Math.max(1L, (quotaDelayMs + 999L) / 1_000L);
@@ -197,6 +198,7 @@ final class BreakBlocksContributor {
 
     private static void send(Task task, String apiKey) {
         Endpoint server = task.server();
+        BreakBlocksAccount.configure(apiKey);
 
         HttpRequest.Builder builder = HttpRequest.newBuilder(uri(server.host(), server.port()))
                 .timeout(Duration.ofSeconds(15))
@@ -238,12 +240,17 @@ final class BreakBlocksContributor {
                     }
 
                     if (response.statusCode() / 100 != 2) {
+                        if (!apiKey.isBlank() && (response.statusCode() == 401 || response.statusCode() == 403)) {
+                            BreakBlocksAccount.rejected();
+                        }
                         log(task.endpoint(), "HTTP " + response.statusCode());
                         audit(task.endpoint(), task.refreshRetries() + 1, "http_error", response.statusCode(), "BreakBlocks returned a non-success response");
                         markFailed(task.endpoint());
                         scheduleAfterResponse(apiKey);
                         return;
                     }
+
+                    BreakBlocksAccount.observeJson(response.body());
 
                     if (isRefreshing(response.body())) {
                         REFRESHING_SESSION.incrementAndGet();
@@ -336,6 +343,7 @@ final class BreakBlocksContributor {
 
     static ContributionSnapshot snapshot() {
         initialize();
+        BreakBlocksAccount.configure(ToolState.breakBlocksApiKey());
         List<String> queued;
         int failedCount;
         synchronized (QUEUED) {

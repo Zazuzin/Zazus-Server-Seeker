@@ -55,6 +55,15 @@ final class RuntimeAccess {
         return Reflection.invokeQuiet(target, name, args);
     }
 
+    /** Minecraft 26.2 mouse-click events use SDL's one-based primary ID. */
+    static boolean isPrimaryMouseButton(Object event) {
+        if (event == null) return false;
+        Object value = invoke(event, "button");
+        if (!(value instanceof Number)) value = invoke(event, "getButton");
+        if (!(value instanceof Number)) value = field(event, "button");
+        return value instanceof Number number && number.intValue() == 1;
+    }
+
     static Object invokeStatic(String className, String name, Object... args) {
         try {
             Class<?> type = Class.forName(className);

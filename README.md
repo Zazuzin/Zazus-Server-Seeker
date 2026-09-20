@@ -4,7 +4,7 @@
 
 Zazu's Server Seeker is a client-side Fabric mod for Minecraft Java Edition 26.2. It adds a server finder, useful Multiplayer categories, server management tools and per-server notes without requiring Meteor Client.
 
-**Current release:** `1.0.0`
+**Current release:** `1.1.8` for Minecraft 26.2.
 
 - [Releases](https://github.com/Zazuzin/Zazus-Server-Seeker/releases)
 - [Issues](https://github.com/Zazuzin/Zazus-Server-Seeker/issues)
@@ -13,6 +13,7 @@ Zazu's Server Seeker is a client-side Fabric mod for Minecraft Java Edition 26.2
 ## Features
 
 - Finds servers through BreakBlocks, Cornbread and MineScan.
+- Randomizes BreakBlocks page traversal and provider-result order so simultaneous searches are less likely to test the same servers first.
 - Verified Search checks results directly before showing or adding them.
 - Quick Search shows provider results immediately for manual review.
 - Filters by version, player count and authentication type.
@@ -21,7 +22,9 @@ Zazu's Server Seeker is a client-side Fabric mod for Minecraft Java Edition 26.2
 - Adds compact Notes, Favourite, authentication and Delete controls to server rows.
 - Detects Microsoft, cracked or unknown authentication in the background. Results are cached for 14 days and can be checked again manually.
 - Auto Join works through eligible Servers or Scanned Servers, skips Favourites and continues after failed connections.
-- Definite whitelist rejections can be removed automatically. Other Auto Join failures are saved in that server's notes with the Minecraft disconnect reason.
+- Conservative automatic cleanup can remove Finder-owned servers after confirmed whitelist or required-client-mod rejections, or after three eligible DNS/unreachable failures.
+- Favourites, manually added servers, timeouts and all client/version mismatches are protected so ViaFabricPlus can still retry with another protocol.
+- Recently Removed records the reason and time for automatic removals and can restore an entry; normal Undo and `servers.dat` backups remain available.
 - Promotes a scanned server to Servers after a stable successful connection.
 - Keeps the last five successful unique connections in Recent Servers.
 - Includes Undo for supported server deletions.
@@ -43,7 +46,7 @@ Player names can be copied from the history list. The player history is a record
 Server Notes data is stored at:
 
 ```text
-config/zazus-server-notes/server-profiles.json
+config/zazus-server-seeker/server-notes/server-profiles.json
 ```
 
 The mod keeps a `.bak` backup and retains the existing schema-v2 data when upgrading.
@@ -56,7 +59,11 @@ Choose a source under **Finder → Settings**:
 - **All Sources** rotates through the available providers and removes duplicate addresses.
 - **BreakBlocks**, **Cornbread** or **MineScan** uses only that provider.
 
-BreakBlocks supports an optional API key. Cornbread and MineScan do not require one.
+BreakBlocks supports an optional API key. When BreakBlocks confirms an
+authenticated paid tier, Server Seeker shows the tier and uses every available
+page reported by the search instead of the public page cap. Page and result
+orders remain randomized without repeating pages. Cornbread and MineScan do not
+require an API key.
 
 Verified Search uses two direct Minecraft status checks before a result is shown or Auto Added. Quick Search skips those checks, so Auto Add is disabled in Quick mode.
 
@@ -69,7 +76,7 @@ Private and LAN addresses are kept locally. Failed joins are not contributed. Co
 An optional BreakBlocks API key can be set in:
 
 ```text
-config/zazus-server-tool.properties
+config/zazus-server-seeker/server-tool.properties
 ```
 
 ```properties
@@ -89,12 +96,20 @@ Do not commit or share your API key.
 ## Installation
 
 1. Install Fabric Loader and Fabric API for Minecraft 26.2.
-2. Download `Zazus-Server-Seeker-1.0.0-mc26.2.jar` from the release page.
+2. Download `Zazus-Server-Seeker-1.1.8-mc26.2.jar`.
 3. Put it in the instance's `mods` folder.
 4. Remove older Server Seeker JARs so only one version is installed.
 5. Start Minecraft and open Multiplayer.
 
 Existing servers, settings, favourites, categories, auth cache, Recent Servers, BreakBlocks state and Server Notes data are preserved when updating.
+
+All Server Seeker configuration and data now lives under:
+
+```text
+config/zazus-server-seeker/
+```
+
+On first launch, legacy Server Seeker files and folders are moved there without overwriting an existing destination. When moving instances, copy this whole folder together with `servers.dat`. If only `servers.dat` was copied, Finder-generated names are used to recover a bulk imported list into **Scanned Servers** instead of leaving hundreds of entries in **Servers**.
 
 ## Building
 
@@ -102,7 +117,7 @@ Use JDK 25 with the included Gradle 9.5.1 wrapper and Fabric Loom project:
 
 ```bash
 ./build.sh
-./verify.sh build/libs/Zazus-Server-Seeker-1.0.0-mc26.2.jar
+./verify.sh build/libs/Zazus-Server-Seeker-1.1.8-mc26.2.jar
 ```
 
 The built JAR is written to `build/libs/`.

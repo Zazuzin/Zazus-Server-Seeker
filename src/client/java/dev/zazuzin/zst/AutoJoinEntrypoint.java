@@ -162,7 +162,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
                 Object mouseEvent = args == null || args.length == 0 ? null : args[args.length - 1];
                 double x = mouseCoordinate(mouseEvent, "x");
                 double y = mouseCoordinate(mouseEvent, "y");
-                if (mouseButton(mouseEvent) == 0 && enabled && joinInProgress && isCancelButtonAt(screen, x, y)) {
+                if (RuntimeAccess.isPrimaryMouseButton(mouseEvent) && enabled && joinInProgress && isCancelButtonAt(screen, x, y)) {
                     stopPass("Sequential Auto Join stopped because the user pressed Cancel.");
                 }
             } catch (Throwable t) {
@@ -179,14 +179,6 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
         if (!(value instanceof Number)) value = Reflection.invokeQuiet(event, "get" + Character.toUpperCase(axis.charAt(0)) + axis.substring(1));
         if (!(value instanceof Number)) value = Reflection.getField(event, axis);
         return value instanceof Number n ? n.doubleValue() : Double.NaN;
-    }
-
-    private static int mouseButton(Object event) {
-        if (event == null) return -1;
-        Object value = Reflection.invokeQuiet(event, "button");
-        if (!(value instanceof Number)) value = Reflection.invokeQuiet(event, "getButton");
-        if (!(value instanceof Number)) value = Reflection.getField(event, "button");
-        return value instanceof Number n ? n.intValue() : -1;
     }
 
     private static boolean isCancelButtonAt(Object screen, double x, double y) {
@@ -304,8 +296,9 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
         // just after ScreenEvents.AFTER_INIT; returning to Multiplayer too early
         // used to lose the whitelist reason before it could be deleted.
         String immediate = DisconnectReason.extract(screen);
-        if (DisconnectReason.isWhitelistRejection(immediate)) {
-            if (!WhitelistAutoDeleteEntrypoint.handleWhitelistFailure(client, screen, endpoint)) {
+        if (DisconnectReason.cleanupCause(immediate) != DisconnectReason.CleanupCause.NONE) {
+            if (!WhitelistAutoDeleteEntrypoint.handleCleanupFailure(client, screen, endpoint)) {
+                recordAutoJoinFailure(endpoint, immediate);
                 returnToMultiplayer(client, screen);
             }
             return;
@@ -322,8 +315,9 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
             String reason = DisconnectReason.extract(screen);
             System.out.println("[Zazu's Server Seeker] Auto Join failed on " + endpoint
                     + " | reason: " + reason + " | moving to next scanned server.");
-            if (DisconnectReason.isWhitelistRejection(reason)) {
-                if (!WhitelistAutoDeleteEntrypoint.handleWhitelistFailure(client, screen, endpoint)) {
+            if (DisconnectReason.cleanupCause(reason) != DisconnectReason.CleanupCause.NONE) {
+                if (!WhitelistAutoDeleteEntrypoint.handleCleanupFailure(client, screen, endpoint)) {
+                    recordAutoJoinFailure(endpoint, reason);
                     returnToMultiplayer(client, screen);
                 }
             } else if (DisconnectReason.isRateLimited(reason)) {
@@ -537,7 +531,7 @@ public final class AutoJoinEntrypoint implements ClientModInitializer {
     }
 
     private static Path configFile() {
-        return ToolState.configDir().resolve("zazus-server-tool-autojoin.properties");
+        return ToolState.configDir().resolve("autojoin.properties");
     }
 
     private record SavedServer(String endpoint, boolean favourite, Object serverData) {}

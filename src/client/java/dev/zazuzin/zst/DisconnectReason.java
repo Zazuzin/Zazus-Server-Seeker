@@ -5,6 +5,18 @@ import java.util.*;
 
 /** Robust extraction/classification of Minecraft connection-failure text. */
 final class DisconnectReason {
+    enum CleanupCause {
+        NONE(""),
+        WHITELIST("Whitelist rejection"),
+        REQUIRED_MODS("Required client mods"),
+        INVALID_ADDRESS("Invalid address or DNS"),
+        UNREACHABLE("Unreachable server");
+
+        private final String label;
+        CleanupCause(String label) { this.label = label; }
+        String label() { return label; }
+    }
+
     private static final List<String> ACCESSORS = List.of(
             "reason", "getReason", "message", "getMessage", "title", "getTitle",
             "description", "getDescription", "info", "details", "getDetails",
@@ -52,6 +64,60 @@ final class DisconnectReason {
                 || normalized.contains("not on the white list");
     }
 
+    /**
+     * Returns only cleanup causes that are safe to act on. Minecraft protocol
+     * or client-version mismatches are deliberately excluded because
+     * ViaFabricPlus may reconnect successfully using a different version.
+     */
+    static CleanupCause cleanupCause(String reason) {
+        String normalized = normalize(reason);
+        if (normalized.isBlank()) return CleanupCause.NONE;
+        if (isWhitelistRejection(normalized)) return CleanupCause.WHITELIST;
+        if (isVersionMismatch(normalized)) return CleanupCause.NONE;
+
+        if (containsAny(normalized,
+                "missing required mod", "missing required mods", "missing mods",
+                "requires the following mod", "requires the following mods",
+                "required client mod", "required client mods", "required mods:",
+                "client mod required", "client mods required", "mod is required", "mods are required",
+                "fabric mods are required", "forge mods are required",
+                "fabric loader is required", "forge is required", "neoforge is required",
+                "quilt loader is required", "requires fabric loader", "requires forge",
+                "requires neoforge", "requires quilt loader",
+                "please install fabric loader", "please install forge", "please install neoforge",
+                "please install quilt loader", "running fabric, but you are not",
+                "running forge, but you are not", "running neoforge, but you are not",
+                "running quilt, but you are not",
+                "install the following mod", "install the following mods",
+                "you need to install the mod", "you need to install the following",
+                "failed mod list check", "mod list is not compatible")) {
+            return CleanupCause.REQUIRED_MODS;
+        }
+        if (containsAny(normalized,
+                "unknown host", "no such host", "unresolved address",
+                "cannot resolve hostname", "could not resolve hostname",
+                "invalid hostname", "invalid server address", "invalid address")) {
+            return CleanupCause.INVALID_ADDRESS;
+        }
+        if (containsAny(normalized,
+                "connection refused", "no route to host", "network is unreachable",
+                "network unreachable", "port unreachable", "getsockopt")) {
+            return CleanupCause.UNREACHABLE;
+        }
+        return CleanupCause.NONE;
+    }
+
+    static boolean isVersionMismatch(String reason) {
+        String normalized = normalize(reason);
+        if (normalized.isBlank()) return false;
+        return containsAny(normalized,
+                "outdated client", "outdated server", "incompatible client",
+                "unsupported client version", "unsupported minecraft version",
+                "incorrect protocol version", "protocol version mismatch",
+                "please use minecraft", "server is on version",
+                "requires minecraft version", "different minecraft version");
+    }
+
     static boolean isRateLimited(String reason) {
         String normalized = normalize(reason);
         if (normalized.isBlank()) return false;
@@ -89,6 +155,11 @@ final class DisconnectReason {
                 .replace('_', ' ')
                 .replaceAll("\\s+", " ")
                 .trim();
+    }
+
+    private static boolean containsAny(String value, String... needles) {
+        for (String needle : needles) if (value.contains(needle)) return true;
+        return false;
     }
 
     private static void collect(Object source, LinkedHashSet<String> texts, Set<Object> seen, int depth) {

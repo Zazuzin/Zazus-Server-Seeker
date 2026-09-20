@@ -165,42 +165,19 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
             if (STATES.get(state.screen) != state) return Boolean.TRUE;
             if (!ServerTabsEntrypoint.isServerListView(state.screen) || ServerFinderClient.isOverlayOpen(state.screen)) return Boolean.TRUE;
             Object mouse = args == null || args.length == 0 ? null : args[args.length - 1];
-            if (mouse == null || mouseButton(mouse) != 0) return Boolean.TRUE;
             double x = mouseCoordinate(mouse, "x"), y = mouseCoordinate(mouse, "y");
             try {
-                if (visibleAndContains(state.deleteAllButton, x, y)) {
-                    deleteAllPressed(state); return Boolean.FALSE;
+                // Ask the real Minecraft widgets to consume the click. This is
+                // deliberately more robust than duplicating SDL button-number
+                // checks here and keeps every configured callback on its native
+                // Button.onPress path after Auto Join rebuilds the screen.
+                if (dispatchManagedWidgetClick(state, mouse, x, y)) {
+                    return Boolean.FALSE;
                 }
-                if (visibleAndContains(state.undoButton, x, y)) {
-                    undoLastDelete(state); return Boolean.FALSE;
-                }
-                for (ServerButtons buttons : state.serverButtons) {
-                    if (visibleAndContains(buttons.notes, x, y)) {
-                        openNotes(state, buttons);
-                        return Boolean.FALSE;
-                    }
-                    if (visibleAndContains(buttons.favourite, x, y)) {
-                        toggleFavourite(state, buttons);
-                        return Boolean.FALSE;
-                    }
-                    if (visibleAndContains(buttons.auth, x, y)) {
-                        recheckAuth(state, buttons);
-                        return Boolean.FALSE;
-                    }
-                    if (visibleAndContains(buttons.delete, x, y)) {
-                        deleteSingle(state, buttons);
-                        return Boolean.FALSE;
-                    }
-                }
-                for (ServerButtons buttons : state.serverButtons) {
-                    if (entryContains(buttons.entry, x, y)) {
-                        // Record the exact endpoint before Minecraft can transition
-                        // into ConnectScreen (including a same-tick double click).
-                        WhitelistAutoDeleteEntrypoint.noteAttempt(buttons.endpoint);
-                        applyViaFabricPlusForEndpoint(buttons.endpoint);
-                        break;
-                    }
-                }
+
+                // Never intercept ordinary server-row clicks here. Minecraft's
+                // OnlineServerEntry must receive them directly; the entry mixin
+                // restores its own double-click fallback at that exact boundary.
             } catch (Throwable t) {
                 System.err.println("[Zazu's Server Seeker] Row click handling failed: " + Reflection.unwrap(t));
             }
@@ -209,16 +186,27 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         RuntimeAccess.registerEvent(event, listener);
     }
 
+    private static boolean dispatchManagedWidgetClick(MultiplayerState state, Object mouse, double x, double y) {
+        if (mouse == null || Double.isNaN(x) || Double.isNaN(y)) return false;
+        if (dispatchIfHit(state.deleteAllButton, mouse, x, y)) return true;
+        if (dispatchIfHit(state.undoButton, mouse, x, y)) return true;
+        for (ServerButtons buttons : state.serverButtons) {
+            if (dispatchIfHit(buttons.notes, mouse, x, y)
+                    || dispatchIfHit(buttons.favourite, mouse, x, y)
+                    || dispatchIfHit(buttons.auth, mouse, x, y)
+                    || dispatchIfHit(buttons.delete, mouse, x, y)) return true;
+        }
+        return false;
+    }
+
+    private static boolean dispatchIfHit(Object widget, Object mouse, double x, double y) {
+        return visibleAndContains(widget, x, y) && ServerTabsEntrypoint.dispatchWidgetClick(widget, mouse);
+    }
+
     private static double mouseCoordinate(Object event, String axis) {
         Object value = Reflection.invokeQuiet(event, axis);
         if (!(value instanceof Number)) value = Reflection.getField(event, axis);
         return value instanceof Number n ? n.doubleValue() : Double.NaN;
-    }
-
-    private static int mouseButton(Object event) {
-        Object value = Reflection.invokeQuiet(event, "button");
-        if (!(value instanceof Number)) value = Reflection.getField(event, "button");
-        return value instanceof Number n ? n.intValue() : -1;
     }
 
     private static boolean visibleAndContains(Object widget, double x, double y) {
@@ -232,14 +220,6 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         int ww = Reflection.intValue(widget, "getWidth", Reflection.intValue(widget, "width", 0));
         int wh = Reflection.intValue(widget, "getHeight", Reflection.intValue(widget, "height", 0));
         return wx != Integer.MIN_VALUE && wy != Integer.MIN_VALUE && x >= wx && x < wx + ww && y >= wy && y < wy + wh;
-    }
-
-    private static boolean entryContains(Object entry, double x, double y) {
-        if (entry == null || Double.isNaN(x) || Double.isNaN(y)) return false;
-        Object value = Reflection.invokeQuiet(entry, "isMouseOver", x, y);
-        if (value instanceof Boolean b) return b;
-        value = Reflection.invokeQuiet(entry, "contains", x, y);
-        return value instanceof Boolean b && b;
     }
 
     private static void registerAfterTick(MultiplayerState state) throws Exception {
@@ -1122,30 +1102,6 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         rebuildRowButtons(screen);
     }
 
-    static void reopenMultiplayerScreen(Object client, Object parentHint) {
-        Object current = Reflection.currentScreen(client);
-        if (current != null && Reflection.isScreen(current, "JoinMultiplayerScreen")) {
-            refreshMultiplayerScreen(client, current);
-            return;
-        }
-        Object multiplayer = findMultiplayerAncestor(parentHint);
-        if (multiplayer != null) {
-            try { Reflection.setScreen(client, multiplayer); refreshMultiplayerScreen(client, multiplayer); } catch (Throwable ignored) {}
-        }
-    }
-
-    private static Object findMultiplayerAncestor(Object screen) {
-        Set<Object> seen = Collections.newSetFromMap(new IdentityHashMap<>());
-        Object cursor = screen;
-        while (cursor != null && seen.add(cursor)) {
-            if (Reflection.isScreen(cursor, "JoinMultiplayerScreen")) return cursor;
-            Object next = Reflection.getField(cursor, "parent", "lastScreen");
-            if (next == cursor) break;
-            cursor = next;
-        }
-        return null;
-    }
-
     private static void protectVanillaDeleteButton(MultiplayerState state) {
         try {
             Object selected = Reflection.invokeQuiet(state.screen, "getSelected");
@@ -1212,8 +1168,28 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         }
     }
 
+    /**
+     * Called from the Minecraft server-entry mixin before native row joining.
+     * Keeping connection context here preserves cleanup and ViaFabricPlus
+     * behavior without intercepting the row's mouse event.
+     */
+    public static String prepareNativeServerEntryClick(Object serverData) {
+        if (serverData == null) return "";
+        String endpoint;
+        try {
+            endpoint = ServerFinderClient.ServerListBridge.serverEndpoint(serverData);
+        } catch (Throwable ignored) {
+            return "";
+        }
+        if (endpoint == null || endpoint.isBlank()) return "";
+        WhitelistAutoDeleteEntrypoint.noteAttempt(endpoint);
+        applyViaFabricPlusForEndpoint(endpoint);
+        return endpoint;
+    }
+
     static String selectedEndpoint(Object multiplayerScreen) {
-        Object selected = Reflection.invokeQuiet(multiplayerScreen, "getSelected");
+        Object list = Reflection.getField(multiplayerScreen, "serverSelectionList", "serverList");
+        Object selected = Reflection.invokeQuiet(list, "getSelected");
         Object data = selected == null ? null : getServerData(selected);
         if (data == null) return "";
         try { return ServerFinderClient.ServerListBridge.serverEndpoint(data); } catch (Throwable ignored) { return ""; }
@@ -1224,7 +1200,8 @@ public final class MultiplayerManagementEntrypoint implements ClientModInitializ
         int width, height;
         final List<ServerButtons> serverButtons = new ArrayList<>();
         Object finderButton, deleteAllButton, undoButton, listWidget;
-        boolean disabledVanillaDelete, loggedTickFailure, loggedRenderFailure, loggedViaFailure, geometryDirty = true;
+        boolean disabledVanillaDelete, loggedTickFailure, loggedRenderFailure, loggedViaFailure,
+                geometryDirty = true;
         boolean lastFinderOpen, lastAuthEnabled;
         String lastViaEndpoint = "", lastDeleteProtectionKey = "";
         long deleteAllArmedUntil, nextStructureValidationAt, nextGeometryRefreshAt, nextSelectionSyncAt;
