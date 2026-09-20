@@ -72,14 +72,6 @@ public final class PlayerTrackingService {
         onlineKeys.addAll(players.keys(observed));
     }
 
-    public boolean isOnline(String profileKey, String playerKey) {
-        return profileKey != null && profileKey.equals(onlineProfileKey) && onlineKeys.contains(playerKey);
-    }
-
-    public int onlineCount(String profileKey) {
-        return profileKey != null && profileKey.equals(onlineProfileKey) ? onlineKeys.size() : 0;
-    }
-
     public Set<String> onlineKeys(String profileKey) {
         if (profileKey == null || !profileKey.equals(onlineProfileKey)) {
             return Collections.emptySet();

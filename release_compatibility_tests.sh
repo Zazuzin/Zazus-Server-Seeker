@@ -47,6 +47,8 @@ public final class ServerNotesCompatibilityTest {
         """;
         Files.writeString(file, json, StandardCharsets.UTF_8);
         ServerProfileStore store = new ServerProfileStore(config);
+        notesDir = config.resolve("zazus-server-seeker/server-notes");
+        file = notesDir.resolve("server-profiles.json");
         ServerProfile profile = store.find("example.net:25565").orElseThrow();
         if (!profile.favourite()) throw new AssertionError("Important state lost");
         if (!"cracked".equals(profile.authenticationType())) throw new AssertionError("auth metadata lost");
@@ -115,7 +117,42 @@ public final class ToolStateUpgradeTest {
         if (ToolState.contributeVerifiedServers || ToolState.authDetectionEnabled) throw new AssertionError("opt-outs changed");
         if (ToolState.autoAddLimit != 50 || ToolState.finderSourceIndex != 4 || ToolState.breakBlocksMaxAgeDays != 14) throw new AssertionError("numeric settings changed");
         if (ToolState.addedCount != 123 || ToolState.deletedCount != 45) throw new AssertionError("stats changed");
+
+        java.util.List<Integer> pageOrder = ServerFinderClient.shuffledBreakBlocksPages(10, new java.util.Random(2602L));
+        java.util.Set<Integer> visitedPages = new java.util.LinkedHashSet<>(pageOrder);
+        if (pageOrder.size() != 10 || visitedPages.size() != 10) {
+            throw new AssertionError("shuffled page traversal repeated a page");
+        }
+        for (int page = 1; page <= 10; page++) {
+            if (!visitedPages.contains(page)) throw new AssertionError("shuffled page traversal omitted page " + page);
+        }
+        if (pageOrder.equals(java.util.List.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 10))) {
+            throw new AssertionError("seeded page order was not shuffled");
+        }
+        if (ServerFinderClient.pageCountForResults(786, 20) != 40) {
+            throw new AssertionError("paid result count did not produce all 40 available pages");
+        }
+        java.util.List<Integer> expandedOrder = ServerFinderClient.shuffledBreakBlocksPages(40, new java.util.Random(2602L));
+        if (expandedOrder.size() != 40 || new java.util.LinkedHashSet<>(expandedOrder).size() != 40) {
+            throw new AssertionError("expanded paid page traversal repeated or omitted pages");
+        }
+
+        long clickAt = 1_000_000_000L;
+        if (!RowDoubleClick.isSecondClick(
+                "example.net:25565", clickAt, "example.net:25565", clickAt + 300_000_000L)) {
+            throw new AssertionError("same-row second click inside 500 ms was not recognised");
+        }
+        if (RowDoubleClick.isSecondClick(
+                "example.net:25565", clickAt, "other.net:25565", clickAt + 300_000_000L)) {
+            throw new AssertionError("different server row was incorrectly treated as a double click");
+        }
+        if (RowDoubleClick.isSecondClick(
+                "example.net:25565", clickAt, "example.net:25565", clickAt + 600_000_000L)) {
+            throw new AssertionError("expired row click was incorrectly treated as a double click");
+        }
+
         ToolState.save();
+        file = configDir.resolve("zazus-server-seeker/server-tool.properties");
         Properties after = new Properties();
         try (var reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) { after.load(reader); }
         if (!"false".equals(after.getProperty("authDetectionEnabled"))) throw new AssertionError("auth opt-out not preserved");

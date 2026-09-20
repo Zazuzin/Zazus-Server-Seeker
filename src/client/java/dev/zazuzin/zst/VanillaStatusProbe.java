@@ -343,8 +343,7 @@ final class VanillaStatusProbe {
 
     private static void rethrowIfFatal(Throwable t) {
         Throwable root = Reflection.unwrap(t);
-        if (root instanceof ThreadDeath death) throw death;
-        if (root instanceof VirtualMachineError fatal) throw fatal;
+        if (root instanceof Error fatal) throw fatal;
     }
 
     private record Endpoint(String host, int port) {

@@ -15,6 +15,11 @@ final class ToolState {
     static boolean quickSearch = false;
     static boolean contributeVerifiedServers = true;
     static boolean authDetectionEnabled = true;
+    static boolean automaticCleanupEnabled = true;
+    static boolean cleanupWhitelistEnabled = true;
+    static boolean cleanupInvalidAddressEnabled = true;
+    static boolean cleanupRequiredModsEnabled = true;
+    static boolean cleanupUnreachableEnabled = true;
     static int autoAddLimit = 25;
     static int versionIndex = 1;
     static int minIndex = 1;
@@ -32,7 +37,7 @@ final class ToolState {
     private static final LinkedHashMap<String, String> ADDED_VERSIONS = new LinkedHashMap<>();
     private static final LinkedHashMap<String, String> ADDED_PROTOCOLS = new LinkedHashMap<>();
     private static final Path CONFIG_DIR = resolveConfigDir();
-    private static final Path FILE = CONFIG_DIR.resolve("zazus-server-tool.properties");
+    private static final Path FILE = CONFIG_DIR.resolve("server-tool.properties");
 
     private ToolState() {}
 
@@ -60,6 +65,11 @@ final class ToolState {
         quickSearch = bool(p, "quickSearch", false);
         contributeVerifiedServers = bool(p, "contributeVerifiedServers", true);
         authDetectionEnabled = bool(p, "authDetectionEnabled", true);
+        automaticCleanupEnabled = bool(p, "automaticCleanupEnabled", true);
+        cleanupWhitelistEnabled = bool(p, "cleanupWhitelistEnabled", true);
+        cleanupInvalidAddressEnabled = bool(p, "cleanupInvalidAddressEnabled", true);
+        cleanupRequiredModsEnabled = bool(p, "cleanupRequiredModsEnabled", true);
+        cleanupUnreachableEnabled = bool(p, "cleanupUnreachableEnabled", true);
         autoAddLimit = integer(p, "autoAddLimit", 25);
         versionIndex = integer(p, "versionIndex", 1);
         minIndex = integer(p, "minIndex", 1);
@@ -84,7 +94,10 @@ final class ToolState {
         // Create/migrate the config so users always have an obvious blank API-key field to fill in.
         if (!configExisted || !p.containsKey("breakBlocksApiKey")
                 || !p.containsKey("breakBlocksMaxAgeDays") || !p.containsKey("quickSearch")
-                || !p.containsKey("contributeVerifiedServers") || !p.containsKey("authDetectionEnabled")) save();
+                || !p.containsKey("contributeVerifiedServers") || !p.containsKey("authDetectionEnabled")
+                || !p.containsKey("automaticCleanupEnabled") || !p.containsKey("cleanupWhitelistEnabled")
+                || !p.containsKey("cleanupInvalidAddressEnabled") || !p.containsKey("cleanupRequiredModsEnabled")
+                || !p.containsKey("cleanupUnreachableEnabled")) save();
         else restrictConfigPermissions();
     }
 
@@ -102,6 +115,11 @@ final class ToolState {
         p.setProperty("quickSearch", String.valueOf(quickSearch));
         p.setProperty("contributeVerifiedServers", String.valueOf(contributeVerifiedServers));
         p.setProperty("authDetectionEnabled", String.valueOf(authDetectionEnabled));
+        p.setProperty("automaticCleanupEnabled", String.valueOf(automaticCleanupEnabled));
+        p.setProperty("cleanupWhitelistEnabled", String.valueOf(cleanupWhitelistEnabled));
+        p.setProperty("cleanupInvalidAddressEnabled", String.valueOf(cleanupInvalidAddressEnabled));
+        p.setProperty("cleanupRequiredModsEnabled", String.valueOf(cleanupRequiredModsEnabled));
+        p.setProperty("cleanupUnreachableEnabled", String.valueOf(cleanupUnreachableEnabled));
         p.setProperty("autoAddLimit", String.valueOf(autoAddLimit));
         p.setProperty("versionIndex", String.valueOf(versionIndex));
         p.setProperty("minIndex", String.valueOf(minIndex));
@@ -298,8 +316,8 @@ final class ToolState {
             Class<?> loader = Class.forName("net.fabricmc.loader.api.FabricLoader");
             Object instance = loader.getMethod("getInstance").invoke(null);
             Object configDir = loader.getMethod("getConfigDir").invoke(instance);
-            if (configDir instanceof Path p) return p;
+            if (configDir instanceof Path p) return ConfigPaths.seekerDirectory(p);
         } catch (Throwable ignored) {}
-        return Path.of(System.getProperty("user.dir", "."), "config");
+        return ConfigPaths.seekerDirectory(Path.of(System.getProperty("user.dir", "."), "config"));
     }
 }

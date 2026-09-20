@@ -12,4 +12,4 @@ Do not publish credentials, private server addresses or another person's persona
 
 ## Credentials
 
-BreakBlocks API keys belong only in the generated `config/zazus-server-tool.properties` file. The `config/` directory is ignored by Git and must not be included in releases.
+BreakBlocks API keys belong only in the generated `config/zazus-server-seeker/server-tool.properties` file. The `config/` directory is ignored by Git and must not be included in releases.

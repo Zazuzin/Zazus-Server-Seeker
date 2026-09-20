@@ -6,8 +6,9 @@ import java.lang.reflect.*;
 import java.util.*;
 
 /**
- * Deletes the explicitly attempted saved server when Minecraft reports a
- * definite whitelist rejection. Favourites are always protected.
+ * Conservatively removes Finder-owned servers after a confirmed permanent
+ * connection failure. Favourites, manual servers and version mismatches are
+ * always protected.
  */
 public final class WhitelistAutoDeleteEntrypoint implements ClientModInitializer {
     private static final long ATTEMPT_WINDOW_MS = 120_000L;
@@ -15,6 +16,7 @@ public final class WhitelistAutoDeleteEntrypoint implements ClientModInitializer
     private static volatile String lastAttemptedEndpoint = "";
     private static volatile long lastAttemptAt;
     private static volatile String lastHandledEndpoint = "";
+    private static volatile DisconnectReason.CleanupCause lastHandledCause = DisconnectReason.CleanupCause.NONE;
     private static volatile long lastHandledAt;
 
     @Override
@@ -35,14 +37,14 @@ public final class WhitelistAutoDeleteEntrypoint implements ClientModInitializer
                                 if (!tryHandleDisconnect(client, screen)) registerDelayedDisconnectWatcher(client, screen);
                             }
                         } catch (Throwable t) {
-                            System.err.println("[Zazu's Server Seeker] Whitelist watcher error: " + Reflection.unwrap(t));
+                            System.err.println("[Zazu's Server Seeker] Automatic cleanup watcher error: " + Reflection.unwrap(t));
                         }
                         return null;
                     });
             registerGlobalTickFallback();
-            System.out.println("[Zazu's Server Seeker] Whitelist cleanup enabled (screen and client-tick detection).");
+            System.out.println("[Zazu's Server Seeker] Conservative automatic cleanup enabled (screen and client-tick detection).");
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Seeker] Whitelist watcher registration failed: " + Reflection.unwrap(t));
+            System.err.println("[Zazu's Server Seeker] Automatic cleanup watcher registration failed: " + Reflection.unwrap(t));
         }
     }
 
@@ -63,7 +65,7 @@ public final class WhitelistAutoDeleteEntrypoint implements ClientModInitializer
                             tryHandleDisconnect(client, screen);
                         }
                     } catch (Throwable t) {
-                        System.err.println("[Zazu's Server Seeker] Whitelist client-tick fallback failed: " + Reflection.unwrap(t));
+                        System.err.println("[Zazu's Server Seeker] Automatic cleanup client-tick fallback failed: " + Reflection.unwrap(t));
                     }
                     return null;
                 });
@@ -90,7 +92,7 @@ public final class WhitelistAutoDeleteEntrypoint implements ClientModInitializer
     private static boolean tryHandleDisconnect(Object client, Object screen) {
         String endpoint = resolveAttemptEndpoint(screen);
         if (endpoint.isBlank()) return false;
-        return handleWhitelistFailure(client, screen, endpoint);
+        return handleCleanupFailure(client, screen, endpoint);
     }
 
     private static String resolveAttemptEndpoint(Object screen) {
@@ -148,41 +150,80 @@ public final class WhitelistAutoDeleteEntrypoint implements ClientModInitializer
                     }
                 } catch (Throwable t) {
                     watch.finished = true;
-                    System.err.println("[Zazu's Server Seeker] Delayed whitelist detection failed: " + Reflection.unwrap(t));
+                    System.err.println("[Zazu's Server Seeker] Delayed cleanup detection failed: " + Reflection.unwrap(t));
                 }
                 return null;
             });
             RuntimeAccess.registerEvent(event, listener);
         } catch (Throwable t) {
-            System.err.println("[Zazu's Server Seeker] Could not attach delayed whitelist watcher: " + Reflection.unwrap(t));
+            System.err.println("[Zazu's Server Seeker] Could not attach delayed cleanup watcher: " + Reflection.unwrap(t));
         }
     }
 
     static boolean handleWhitelistFailure(Object client, Object screen, String endpointHint) {
         String reason = DisconnectReason.extract(screen);
         if (!DisconnectReason.isWhitelistRejection(reason)) return false;
+        return handleCleanupFailure(client, screen, endpointHint, reason,
+                DisconnectReason.CleanupCause.WHITELIST);
+    }
+
+    static boolean handleCleanupFailure(Object client, Object screen, String endpointHint) {
+        String reason = DisconnectReason.extract(screen);
+        DisconnectReason.CleanupCause cause = DisconnectReason.cleanupCause(reason);
+        if (cause == DisconnectReason.CleanupCause.NONE || !cleanupEnabled(cause)) return false;
+        return handleCleanupFailure(client, screen, endpointHint, reason, cause);
+    }
+
+    private static boolean handleCleanupFailure(Object client, Object screen, String endpointHint,
+                                                String reason, DisconnectReason.CleanupCause cause) {
+        if (!cleanupEnabled(cause)) return false;
 
         String endpoint = ToolState.normalize(endpointHint);
         if (endpoint.isBlank()) endpoint = resolveAttemptEndpoint(screen);
         if (endpoint.isBlank()) {
-            System.err.println("[Zazu's Server Seeker] Whitelist rejection detected but attempted endpoint was unknown. Reason: " + reason);
+            System.err.println("[Zazu's Server Seeker] " + cause.label()
+                    + " detected but attempted endpoint was unknown. Reason: " + reason);
             return false;
         }
 
         long now = System.currentTimeMillis();
-        if (endpoint.equals(lastHandledEndpoint) && now - lastHandledAt >= 0L && now - lastHandledAt <= 2_000L) {
+        if (endpoint.equals(lastHandledEndpoint) && cause == lastHandledCause
+                && now - lastHandledAt >= 0L && now - lastHandledAt <= 2_000L) {
             AutoJoinEntrypoint.markReturningAfterFailure();
             return true;
         }
         lastHandledEndpoint = endpoint;
+        lastHandledCause = cause;
         lastHandledAt = now;
 
-        if (ServerListAccess.isFavouriteEndpoint(client, findMultiplayerScreen(screen), endpoint)) {
-            System.out.println("[Zazu's Server Seeker] Kept favourite after whitelist rejection: " + endpoint);
+        Object multiplayer = findMultiplayerScreen(screen);
+        if (ServerListAccess.isFavouriteEndpoint(client, multiplayer, endpoint)) {
+            System.out.println("[Zazu's Server Seeker] Kept favourite after " + cause.label() + ": " + endpoint);
             AutoJoinEntrypoint.markReturningAfterFailure();
             returnToMultiplayer(client, screen);
             clearAttempt();
             return true;
+        }
+        if (!finderOwned(endpoint)) {
+            System.out.println("[Zazu's Server Seeker] Kept manually added server after "
+                    + cause.label() + ": " + endpoint);
+            AutoJoinEntrypoint.markReturningAfterFailure();
+            returnToMultiplayer(client, screen);
+            clearAttempt();
+            return true;
+        }
+
+        if (cause == DisconnectReason.CleanupCause.INVALID_ADDRESS
+                || cause == DisconnectReason.CleanupCause.UNREACHABLE) {
+            int failures = ServerCategoryStore.recordHealthFailure(endpoint);
+            if (failures < 3) {
+                System.out.println("[Zazu's Server Seeker] Cleanup check " + failures
+                        + "/3 for " + endpoint + " (" + cause.label() + "); keeping server for now.");
+                AutoJoinEntrypoint.markReturningAfterFailure();
+                returnToMultiplayer(client, screen);
+                clearAttempt();
+                return true;
+            }
         }
 
         // If Auto Join owns the connection, mark the upcoming return as a failed
@@ -192,25 +233,44 @@ public final class WhitelistAutoDeleteEntrypoint implements ClientModInitializer
         // Remove from the actual live JoinMultiplayerScreen ServerList first.
         // Otherwise that screen can later save its stale copy and resurrect a
         // server that was removed through a separately loaded ServerList.
-        Object multiplayer = findMultiplayerScreen(screen);
+        String savedName = ServerListAccess.savedName(client, multiplayer, endpoint);
+        ServerCategoryStore.backupBeforeAutomaticRemoval();
         boolean removedLive = ServerListAccess.removeFromScreenServerList(multiplayer, endpoint);
         boolean removedPersisted = ServerListAccess.forceRemove(client, endpoint);
         boolean removed = removedLive || removedPersisted;
 
         if (removed) {
+            ServerCategoryStore.recordAutomaticRemoval(savedName, endpoint, cause.label(),
+                    DisconnectReason.concise(reason));
             ServerCategoryStore.remove(endpoint);
             ToolState.recordDeleted(endpoint);
             removeFromOpenMultiplayerBackings(screen, endpoint);
-            System.out.println("[Zazu's Server Seeker] Removed whitelist-rejected server: " + endpoint
+            System.out.println("[Zazu's Server Seeker] Automatically removed Finder server: " + endpoint
                     + " | live=" + removedLive + " persisted=" + removedPersisted
-                    + " | reason: " + reason);
+                    + " | cause=" + cause.label() + " | reason: " + reason);
         } else {
-            System.err.println("[Zazu's Server Seeker] Whitelist rejection detected but saved server could not be removed: " + endpoint + " | reason: " + reason);
+            System.err.println("[Zazu's Server Seeker] " + cause.label()
+                    + " detected but saved server could not be removed: " + endpoint + " | reason: " + reason);
         }
 
         returnToMultiplayer(client, screen);
         clearAttempt();
         return true;
+    }
+
+    private static boolean finderOwned(String endpoint) {
+        return ServerCategoryStore.isScanned(endpoint) || ToolState.wasAdded(endpoint);
+    }
+
+    private static boolean cleanupEnabled(DisconnectReason.CleanupCause cause) {
+        if (!ToolState.automaticCleanupEnabled) return false;
+        return switch (cause) {
+            case WHITELIST -> ToolState.cleanupWhitelistEnabled;
+            case REQUIRED_MODS -> ToolState.cleanupRequiredModsEnabled;
+            case INVALID_ADDRESS -> ToolState.cleanupInvalidAddressEnabled;
+            case UNREACHABLE -> ToolState.cleanupUnreachableEnabled;
+            case NONE -> false;
+        };
     }
 
     private static void removeFromOpenMultiplayerBackings(Object screen, String endpoint) {

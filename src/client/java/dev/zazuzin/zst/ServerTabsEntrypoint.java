@@ -26,6 +26,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
     private static final long LAYOUT_MAINTENANCE_INTERVAL_MS = 1_000L;
     private static final long BUTTON_REFRESH_INTERVAL_MS = 500L;
     private static final long SELECTION_POLL_INTERVAL_MS = 200L;
+    private static final int FOOTER_BUTTON_GAP = 10;
 
     private static final Map<Object, State> STATES = Collections.synchronizedMap(new WeakHashMap<>());
     private static final Map<Object, ScreenRoute> SCREEN_ROUTES = Collections.synchronizedMap(new WeakHashMap<>());
@@ -241,6 +242,11 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         purgeStaleOwnedWidgets(screen);
 
         State state = new State(client, screen, hubScreen, width, height);
+        if (previous != null) {
+            state.nativeRefreshBounds = previous.nativeRefreshBounds;
+            state.nativeBackBounds = previous.nativeBackBounds;
+            state.nativeDeleteBounds = previous.nativeDeleteBounds;
+        }
         STATES.put(screen, state);
 
         state.baseWidgets.addAll(widgets(screen));
@@ -332,10 +338,9 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         Object tool = MultiplayerManagementEntrypoint.finderButton(state.screen);
         Bounds toolBounds = originalBounds(state, tool);
         int buttonH = toolBounds != null ? toolBounds.height : 20;
-        // Reuse the native Refresh slot exactly. Minecraft changes the footer
-        // widths with GUI scale, and its Back slot is not always the same width
-        // as the other buttons. Recalculating four equal slots caused a small
-        // overlap in full-screen mode even though windowed mode looked correct.
+        // Capture Minecraft's settled Refresh slot. The replacement remains in
+        // this footer position; layoutCategoryControls trims it against the
+        // live Delete and Back bounds after every resize/layout maintenance pass.
         for (Object widget : state.baseWidgets) {
             if (!isNativeRefreshWidget(state, widget)) continue;
             state.nativeRefreshBounds = originalBounds(state, widget);
@@ -343,13 +348,18 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         }
         Bounds refreshBounds = state.nativeRefreshBounds;
         if (refreshBounds == null) {
-            int footerGap = 4;
+            int footerGap = FOOTER_BUTTON_GAP;
             int footerWidth = Math.min(100, Math.max(70, (state.width - 360) / 4));
             int footerTotal = footerWidth * 4 + footerGap * 3;
             int footerStartX = Math.max(6, (state.width - footerTotal) / 2);
             refreshBounds = new Bounds(footerStartX + 2 * (footerWidth + footerGap),
                     Math.max(6, state.height - 28), footerWidth, buttonH);
         }
+        // Cache both neighbours while the native footer is known to be intact.
+        // Auto Join can later re-initialise the same screen with replacement
+        // widget instances, so these bounds are also carried into the next State.
+        liveFooterBounds(state, "Delete");
+        liveBackBounds(state);
         state.categoryRefreshButton = makeButton("Refresh", refreshBounds.x(),
                 refreshBounds.y(), refreshBounds.width(), refreshBounds.height(),
                 b -> refreshCategoryInPlace(state));
@@ -386,14 +396,13 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
             if (state.view == View.HUB) return Boolean.TRUE;
 
             Object mouse = args == null || args.length == 0 ? null : args[args.length - 1];
-            if (mouse == null || mouseButton(mouse) != 0) return Boolean.TRUE;
+            if (!RuntimeAccess.isPrimaryMouseButton(mouse)) return Boolean.TRUE;
             double x = mouseCoordinate(mouse, "x"), y = mouseCoordinate(mouse, "y");
 
-            // Only the dedicated left rail needs interception because it overlaps
-            // the full-width server-list hitbox. Dispatch the real Minecraft
-            // mouseClicked(MouseButtonEvent, boolean) method first. Crucially, we
-            // cancel vanilla processing only when the button actually consumed the
-            // click; a failed reflective dispatch must never make a button dead.
+            // Dispatch the real Minecraft mouseClicked(MouseButtonEvent, boolean)
+            // method first for our category controls. Crucially, we cancel vanilla
+            // processing only when the button actually consumed the click; a
+            // failed reflective dispatch must never make a button dead.
             for (Object widget : Arrays.asList(state.autoJoinButton, state.categoryRefreshButton,
                     MultiplayerManagementEntrypoint.finderButton(state.screen))) {
                 if (visibleActiveContains(widget, x, y) && dispatchWidgetClick(widget, mouse)) {
@@ -427,7 +436,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
             removed++;
         }
         System.out.println("[Zazu's Server Seeker] Removed " + removed
-                + " native Refresh control(s); left-rail refresh enabled.");
+                + " native Refresh control(s); fitted category refresh enabled.");
     }
 
     private static void suppressNativeRefreshControls(State state) {
@@ -454,12 +463,6 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         Object value = RuntimeAccess.invoke(event, axis);
         if (!(value instanceof Number)) value = RuntimeAccess.field(event, axis);
         return value instanceof Number n ? n.doubleValue() : Double.NaN;
-    }
-
-    private static int mouseButton(Object event) {
-        Object value = RuntimeAccess.invoke(event, "button");
-        if (!(value instanceof Number)) value = RuntimeAccess.field(event, "button");
-        return value instanceof Number n ? n.intValue() : -1;
     }
 
     static boolean dispatchWidgetClick(Object widget, Object mouseEvent) {
@@ -566,6 +569,11 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         // every vanilla server row (and its status work) before the hub opened.
         MultiplayerManagementEntrypoint.clearRowButtons(state.screen);
         refreshCachedSaved(state, false);
+        try {
+            ServerListAccess.clearVisibleRows(state.client, state.screen);
+        } catch (Throwable t) {
+            logOnce(state, "Could not suspend hidden hub server pings", t);
+        }
         applyLayout(state);
         updateButtons(state);
     }
@@ -620,6 +628,9 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         if (current != null && current != state.screen) return;
 
         long now = System.currentTimeMillis();
+        // Minecraft 26.2 can rebuild the native footer between our periodic
+        // layout passes. Remove its Refresh duplicate on every screen tick.
+        if (state.view != View.HUB) suppressNativeRefreshControls(state);
         int liveWidth = RuntimeAccess.intField(state.screen, "width", state.width);
         int liveHeight = RuntimeAccess.intField(state.screen, "height", state.height);
         if (liveWidth > 0 && liveHeight > 0 && (liveWidth != state.width || liveHeight != state.height)) {
@@ -683,9 +694,10 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
 
     /**
      * Existing Scanned Servers are rechecked in small batches while that tab is
-     * open. A non-favourite scanned entry is removed only after three
-     * consecutive failed direct Minecraft status handshakes. Any successful
-     * reply immediately resets its failure streak.
+     * open. A non-favourite scanned entry is removed only after three eligible
+     * DNS/unreachable failures. Timeouts, local probe errors and protocol or
+     * client-version mismatches never count. Any successful reply immediately
+     * resets its failure streak.
      */
     private static void tickScannedHealthCleanup(State state) {
         if (state == null || state.view != View.SCANNED || coreAutoJoinEnabled()) return;
@@ -760,9 +772,16 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
                     continue;
                 }
 
-                // Internal/local probe errors (for example a saturated local
-                // queue) are not evidence that the server is offline.
-                if (result == null || result.failure() == VanillaStatusProbe.Failure.ERROR) continue;
+                // Internal/local probe errors and timeouts are not evidence of
+                // a permanent failure. Version mismatches normally still give
+                // a status reply and are deliberately left for ViaFabricPlus.
+                if (result == null || result.failure() == VanillaStatusProbe.Failure.ERROR
+                        || result.failure() == VanillaStatusProbe.Failure.TIMEOUT) continue;
+                if (!ToolState.automaticCleanupEnabled) continue;
+                if (result.failure() == VanillaStatusProbe.Failure.DNS
+                        && !ToolState.cleanupInvalidAddressEnabled) continue;
+                if (result.failure() == VanillaStatusProbe.Failure.UNREACHABLE
+                        && !ToolState.cleanupUnreachableEnabled) continue;
 
                 int failures = ServerCategoryStore.recordHealthFailure(endpoint);
                 SCANNED_HEALTH_FAILURES.put(key, failures);
@@ -782,12 +801,22 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
                     continue;
                 }
 
+                ServerCategoryStore.backupBeforeAutomaticRemoval();
                 if (ServerListAccess.forceRemove(state.client, endpoint)) {
+                    String savedName = state.saved.stream()
+                            .filter(saved -> ServerListAccess.normalize(saved.endpoint()).equals(key))
+                            .map(ServerListAccess.Saved::name).findFirst().orElse("");
+                    String reason = result.failure() == VanillaStatusProbe.Failure.DNS
+                            ? DisconnectReason.CleanupCause.INVALID_ADDRESS.label()
+                            : DisconnectReason.CleanupCause.UNREACHABLE.label();
+                    ServerCategoryStore.recordAutomaticRemoval(savedName, endpoint, reason, result.detail());
                     ServerCategoryStore.remove(endpoint);
+                    ToolState.recordDeleted(endpoint);
                     SCANNED_HEALTH_FAILURES.remove(key);
                     deleted++;
-                    System.out.println("[Zazu's Server Seeker] Auto-deleted unreachable scanned server after "
-                            + SCANNED_FAILURES_BEFORE_DELETE + " failed checks: " + endpoint);
+                    System.out.println("[Zazu's Server Seeker] Auto-deleted scanned server after "
+                            + SCANNED_FAILURES_BEFORE_DELETE + " eligible failed checks: " + endpoint
+                            + " (" + reason + ").");
                 }
             }
 
@@ -814,9 +843,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         if (state.saved.isEmpty()) {
             state.saved = ServerListAccess.savedFromEntries(ServerListAccess.onlineEntries(state.screen));
         }
-        List<String> endpoints = state.saved.stream().map(ServerListAccess.Saved::endpoint).toList();
-        if (migrate) ServerCategoryStore.migrateExisting(endpoints);
-        ServerCategoryStore.syncNew(endpoints);
+        ServerCategoryStore.reconcileSaved(state.saved, migrate);
         state.lastSignature = ServerListAccess.signature(state.saved);
         lastKnownSaved = List.copyOf(state.saved);
     }
@@ -830,8 +857,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         lastKnownSaved = state.saved;
         if (!detectChanges || changed) {
             state.lastSignature = signature;
-            List<String> endpoints = state.saved.stream().map(ServerListAccess.Saved::endpoint).toList();
-            ServerCategoryStore.syncNew(endpoints);
+            ServerCategoryStore.reconcileSaved(state.saved, false);
             if (detectChanges && state.view != View.HUB) {
                 applyCategoryRows(state, tabForView(state.view));
                 MultiplayerManagementEntrypoint.rebuildRowButtons(state.screen);
@@ -856,7 +882,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         if (state == null || finderOpen(state.screen)) return;
 
         // Minecraft can recreate/update its native footer after AFTER_INIT.
-        // Keep only the working left-rail refresh visible and clickable.
+        // Keep only the working fitted category refresh visible and clickable.
         if (state.view != View.HUB) suppressNativeRefreshControls(state);
 
         List<Object> live = widgets(state.screen);
@@ -908,8 +934,12 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
             // measurable source of Multiplayer menu overhead.
             purgeStaleOwnedWidgetsExceptCurrent(state);
             if (hub) layoutHub(state, tool);
-            else layoutCategoryControls(state);
         }
+        // Footer positions can be changed in place by Minecraft or another mod
+        // without registering a new widget. Refit the handful of category
+        // controls on every one-second layout-maintenance pass so Refresh always
+        // follows the live Delete/Back geometry after GUI-scale changes.
+        if (!hub) layoutCategoryControls(state);
         state.layoutDirty = false;
         state.appliedView = state.view;
 
@@ -1064,20 +1094,132 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         int toolH = 20;
         if (bulkDelete != null) setBounds(bulkDelete, railX, listTop, railW, toolH);
         if (undoDelete != null) setBounds(undoDelete, railX, listTop + toolH + 4, railW, toolH);
-        Bounds refreshBounds = state.nativeRefreshBounds;
-        int finderY = refreshBounds != null ? refreshBounds.y() : Math.max(listTop + 48, state.height - 28);
+        Bounds nativeRefreshBounds = state.nativeRefreshBounds;
+        int finderY = nativeRefreshBounds != null ? nativeRefreshBounds.y() : Math.max(listTop + 48, state.height - 28);
         if (tool != null) setBounds(tool, railX, finderY, railW, toolH);
 
-        if (refreshBounds != null) {
-            setBounds(state.categoryRefreshButton, refreshBounds.x(), refreshBounds.y(),
-                    refreshBounds.width(), refreshBounds.height());
+        Bounds fittedRefreshBounds = fittedFooterRefreshBounds(state);
+        if (fittedRefreshBounds != null) {
+            setBounds(state.categoryRefreshButton, fittedRefreshBounds.x(), fittedRefreshBounds.y(),
+                    fittedRefreshBounds.width(), fittedRefreshBounds.height());
         }
 
         if (state.autoJoinButton != null) {
-            int autoY = Math.max(listTop, finderY - toolH - 4);
+            int autoY = Math.max(listTop + 48, finderY - toolH - 4);
             setBounds(state.autoJoinButton, railX, autoY, railW, toolH);
         }
 
+    }
+
+    /**
+     * Keeps Refresh in Minecraft's original footer slot while enforcing a real
+     * gap from the live neighbouring buttons. The preferred bounds normally pass
+     * through unchanged; only an overlap introduced by resize, GUI scale or a
+     * late footer relayout causes an edge to be moved inward.
+     */
+    private static Bounds fittedFooterRefreshBounds(State state) {
+        Bounds preferred = state.nativeRefreshBounds;
+        if (preferred == null) return null;
+
+        Bounds delete = liveFooterBounds(state, "Delete");
+        Bounds back = liveBackBounds(state);
+        int left = preferred.x();
+        int right = preferred.x() + preferred.width();
+        int gap = FOOTER_BUTTON_GAP;
+
+        if (delete != null && verticallyOverlaps(preferred, delete)) {
+            left = Math.max(left, delete.x() + delete.width() + gap);
+        }
+        if (back != null && verticallyOverlaps(preferred, back)) {
+            right = Math.min(right, back.x() - gap);
+        }
+
+        // A very narrow custom layout may leave no usable portion of the old
+        // native slot. If Delete and Back still leave a real gap, use that exact
+        // space rather than moving Refresh to a different part of the screen.
+        if (right <= left && delete != null && back != null && verticallyOverlaps(delete, back)) {
+            left = delete.x() + delete.width() + gap;
+            right = back.x() - gap;
+        }
+        if (right <= left) {
+            // There is no full-width slot in an exceptionally narrow layout.
+            // Preserve the non-overlap guarantee even there; normal Minecraft
+            // minimum window sizes leave substantially more than one pixel.
+            if (back != null && verticallyOverlaps(preferred, back)) {
+                int safeRight = back.x() - gap;
+                return new Bounds(Math.min(preferred.x(), safeRight - 1),
+                        preferred.y(), 1, preferred.height());
+            }
+            return preferred;
+        }
+        return new Bounds(left, preferred.y(), right - left, preferred.height());
+    }
+
+    private static Bounds liveFooterBounds(State state, String label) {
+        Bounds preferred = state.nativeRefreshBounds;
+        Bounds best = null;
+        int bestDistance = Integer.MAX_VALUE;
+        for (Object widget : liveFooterWidgets(state)) {
+            if (widget == null || !widgetLabel(widget).trim().equals(label)) continue;
+            Bounds bounds = liveBounds(widget);
+            if (bounds == null) continue;
+            int distance = preferred == null ? 0 : Math.abs(bounds.y() - preferred.y());
+            if (best == null || distance < bestDistance) {
+                best = bounds;
+                bestDistance = distance;
+            }
+        }
+        if (best != null && label.equals("Delete")) state.nativeDeleteBounds = best;
+        return best != null ? best : label.equals("Delete") ? state.nativeDeleteBounds : null;
+    }
+
+    private static Bounds liveBackBounds(State state) {
+        Bounds preferred = state.nativeRefreshBounds;
+        Bounds best = null;
+        int bestDistance = Integer.MAX_VALUE;
+        for (Object widget : liveFooterWidgets(state)) {
+            if (widget == null || !isNativeBackWidget(widget)) continue;
+            Bounds bounds = liveBounds(widget);
+            if (bounds == null) continue;
+            int distance = preferred == null ? 0 : Math.abs(bounds.y() - preferred.y());
+            if (best == null || distance < bestDistance) {
+                best = bounds;
+                bestDistance = distance;
+            }
+        }
+        if (best != null) state.nativeBackBounds = best;
+        return best != null ? best : state.nativeBackBounds;
+    }
+
+    private static List<Object> liveFooterWidgets(State state) {
+        ArrayList<Object> result = new ArrayList<>();
+        Set<Object> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        // screenListElements includes the replacement button instances created
+        // when Auto Join returns from Connect/Disconnected screens. baseWidgets
+        // remains as a fallback for integrations that expose only Fabric widgets.
+        for (Object widget : Reflection.screenListElements(state.screen)) {
+            if (widget != null && seen.add(widget)) result.add(widget);
+        }
+        for (Object widget : state.baseWidgets) {
+            if (widget != null && seen.add(widget)) result.add(widget);
+        }
+        return result;
+    }
+
+    private static Bounds liveBounds(Object widget) {
+        int x = widgetInt(widget, "getX", "x", Integer.MIN_VALUE);
+        int y = widgetInt(widget, "getY", "y", Integer.MIN_VALUE);
+        int width = widgetInt(widget, "getWidth", "width", Integer.MIN_VALUE);
+        int height = widgetInt(widget, "getHeight", "height", Integer.MIN_VALUE);
+        if (x == Integer.MIN_VALUE || y == Integer.MIN_VALUE
+                || width <= 0 || height <= 0) return null;
+        return new Bounds(x, y, width, height);
+    }
+
+    private static boolean verticallyOverlaps(Bounds first, Bounds second) {
+        return first != null && second != null
+                && first.y() < second.y() + second.height()
+                && second.y() < first.y() + first.height();
     }
 
 
@@ -1459,7 +1601,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         int width, height;
         final List<Object> baseWidgets = new ArrayList<>();
         final Map<Object, Bounds> originalBounds = new IdentityHashMap<>();
-        Bounds nativeRefreshBounds;
+        Bounds nativeRefreshBounds, nativeBackBounds, nativeDeleteBounds;
         Object listWidget;
         Object favouritesButton, serversButton, scannedButton, recentButton, categoryRefreshButton;
         Object autoJoinButton;

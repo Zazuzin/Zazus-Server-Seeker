@@ -41,6 +41,21 @@ final class ServerListAccess {
         applyCategoryFromSource(client, screen, source, tab);
     }
 
+    /** Clears the hub's hidden vanilla rows and cancels their status jobs. The
+     * full source ServerList remains installed on the screen for category use. */
+    static void clearVisibleRows(Object client, Object screen) throws Exception {
+        Object listWidget = listWidget(screen);
+        if (listWidget == null) return;
+        Object pinger = RuntimeAccess.invoke(screen, "getPinger");
+        if (pinger == null) pinger = RuntimeAccess.field(screen, "pinger");
+        if (pinger != null) RuntimeAccess.invoke(pinger, "removeAll");
+        Object empty = createEmptyServerList(client);
+        Method update = compatibleOneArgMethod(listWidget.getClass(), "updateOnlineServers", empty);
+        if (update == null) update = compatibleOneArgMethod(listWidget.getClass(), "setServers", empty);
+        if (update == null) throw new NoSuchMethodException("ServerSelectionList.updateOnlineServers(ServerList)");
+        update.invoke(listWidget, empty);
+    }
+
     private static void applyCategoryFromSource(Object client, Object screen, Object source,
                                                 ServerCategoryStore.Tab tab) throws Exception {
         Object listWidget = listWidget(screen);
@@ -409,6 +424,29 @@ final class ServerListAccess {
                     + targetEndpoint + ": " + root(t));
             return false;
         }
+    }
+
+    static String savedName(Object client, Object screen, String targetEndpoint) {
+        String target = normalize(targetEndpoint);
+        if (target.isBlank()) return "";
+        try {
+            Object live = serverListObject(screen);
+            String name = nameFromList(live, target);
+            if (!name.isBlank()) return name;
+        } catch (Throwable ignored) {}
+        try {
+            return nameFromList(createLoadedList(client), target);
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    private static String nameFromList(Object list, String normalizedTarget) {
+        if (list == null) return "";
+        for (Object data : allServerData(list)) {
+            if (sameEndpoint(endpoint(data), normalizedTarget)) return name(data);
+        }
+        return "";
     }
 
     private static boolean containsFavourite(Object list, String normalizedTarget) {

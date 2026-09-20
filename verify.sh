@@ -41,6 +41,12 @@ grep -q 'changeResultPage(s, 1)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFi
 grep -q 'for (ServerRecord record : s.results) accumulated.put' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
   echo "Finder does not retain verified results between batches" >&2; exit 1;
 }
+grep -q 'shuffledBreakBlocksPages(safePageCount, ThreadLocalRandom.current())' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
+  echo "Finder BreakBlocks pages are not shuffled per search" >&2; exit 1;
+}
+grep -q 'Collections.shuffle(shuffledRecords, ThreadLocalRandom.current())' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
+  echo "Finder provider results are not shuffled before selection" >&2; exit 1;
+}
 grep -Eq 'listBottom = Math.min\(listBottom, footerTop - 4\)|cachedListBottom = Math.min\(rawBottom, vanillaFooterTop\(state\) - 4\)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
   echo "Per-server controls are not constrained above Minecraft's footer" >&2; exit 1;
 }
@@ -65,7 +71,7 @@ grep -q 'if (ticksUntilPoll-- > 0) return;' "$ROOT/src/client/java/dev/zazu/serv
 grep -q 'b -> recheckAuth(state, sb)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
   echo "Saved-server auth control is not wired to manual recheck" >&2; exit 1;
 }
-grep -q 'visibleAndContains(buttons.auth, x, y)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+grep -q 'dispatchIfHit(buttons.auth, mouse, x, y)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
   echo "Saved-server auth control is missing from row mouse interception" >&2; exit 1;
 }
 grep -q 'ServerAuthService.recheckAsync' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
@@ -85,7 +91,7 @@ if grep -q 'playerTracking()' "$ROOT/src/client/java/dev/zazu/servernotes/ui/Ser
   exit 1
 fi
 if [[ -e "$ROOT/src/client/java/dev/zazu/servernotes/ui/PlayersListScreen.java" ]]; then
-  echo "Obsolete standalone PlayersListScreen remains in the RC source" >&2; exit 1;
+  echo "Obsolete standalone PlayersListScreen remains in the release source" >&2; exit 1;
 fi
 for obsolete in \
     "$ROOT/src/client/java/dev/zazu/servernotes/ui/TagInputScreen.java" \
@@ -93,7 +99,7 @@ for obsolete in \
     "$ROOT/src/client/java/dev/zazu/servernotes/service/ServerTagService.java" \
     "$ROOT/src/client/java/dev/zazu/servernotes/service/ServerProfileService.java"; do
   if [[ -e "$obsolete" ]]; then
-    echo "Removed Server Notes UI/service code remains in the RC source: $obsolete" >&2
+    echo "Removed Server Notes UI/service code remains in the release source: $obsolete" >&2
     exit 1
   fi
 done
@@ -153,6 +159,91 @@ fi
 grep -q 'MultiplayerManagementEntrypoint.clearRowButtons(state.screen)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Category hub is not clearing hidden row controls" >&2; exit 1;
 }
+grep -q 'ServerListAccess.clearVisibleRows(state.client, state.screen)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Category hub is not cancelling hidden server pings" >&2; exit 1;
+}
+grep -q 'if (state.view != View.HUB) suppressNativeRefreshControls(state)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Per-tick native Refresh suppression is missing" >&2; exit 1;
+}
+grep -q 'Bounds fittedRefreshBounds = fittedFooterRefreshBounds(state)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Refresh is not restored to its fitted footer slot" >&2; exit 1;
+}
+grep -q 'right = Math.min(right, back.x() - gap)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Refresh does not enforce a gap from the live Back button" >&2; exit 1;
+}
+grep -q 'FOOTER_BUTTON_GAP = 10' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Refresh does not preserve the normal footer-button spacing" >&2; exit 1;
+}
+grep -q 'Reflection.screenListElements(state.screen)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Refresh fitting is not reading Auto Join replacement footer widgets" >&2; exit 1;
+}
+grep -q 'state.nativeBackBounds = previous.nativeBackBounds' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Auto Join footer rebuild does not retain the last safe Back bounds" >&2; exit 1;
+}
+grep -q 'state.nativeRefreshBounds = previous.nativeRefreshBounds' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Auto Join footer rebuild does not retain the original Refresh slot" >&2; exit 1;
+}
+grep -q 'ServerTabsEntrypoint.dispatchWidgetClick(widget, mouse)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Saved-row controls are not routed through Minecraft widget dispatch" >&2; exit 1;
+}
+if grep -qE 'registerRowButtonMouseFallback|afterMouseClick|lastAllowedMouse' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java"; then
+  echo "Obsolete Fabric post-click callback remains and can break native row clicks" >&2; exit 1
+fi
+if grep -R -nE 'reopenMultiplayerScreen|findMultiplayerAncestor|pressJoinServerButton|setServerEndpoint|stateFor\(Object screen\)|typeFor\(String endpoint\)|hasResult\(String endpoint\)|detailFor\(String endpoint\)|migrateExisting\(|resetHealth\(|healthSummary\(' "$ROOT/src/client/java"; then
+  echo "Removed release-only compatibility helpers returned to source" >&2; exit 1
+fi
+MIXIN_SOURCE="$ROOT/src/client/java/dev/zazuzin/zst/mixin/OnlineServerEntryMixin.java"
+grep -q '@Mixin(ServerSelectionList.OnlineServerEntry.class)' "$MIXIN_SOURCE" || {
+  echo "Minecraft online-server entry mixin is missing" >&2; exit 1;
+}
+grep -q 'mouseClicked(Lnet/minecraft/client/input/MouseButtonEvent;Z)Z' "$MIXIN_SOURCE" || {
+  echo "Minecraft 26.2 server-entry click injection target is incorrect" >&2; exit 1;
+}
+grep -q 'RowDoubleClick.isSecondClick' "$MIXIN_SOURCE" || {
+  echo "Server-entry same-row timing fallback is missing" >&2; exit 1;
+}
+grep -q 'PRIMARY_MOUSE_BUTTON = 1' "$MIXIN_SOURCE" || {
+  echo "Minecraft 26.2 SDL primary mouse ID is incorrect in the entry mixin" >&2; exit 1;
+}
+grep -q 'mouse.button() != PRIMARY_MOUSE_BUTTON' "$MIXIN_SOURCE" || {
+  echo "Server-entry fallback is not restricted to primary clicks" >&2; exit 1;
+}
+grep -q 'public abstract void join()' "$MIXIN_SOURCE" || {
+  echo "Minecraft server-entry join shadow is missing" >&2; exit 1;
+}
+grep -q 'callback.setReturnValue(true)' "$MIXIN_SOURCE" || {
+  echo "Fallback double-click does not consume the joined row click" >&2; exit 1;
+}
+grep -q 'prepareNativeServerEntryClick(getServerData())' "$MIXIN_SOURCE" || {
+  echo "Native entry join does not preserve connection context" >&2; exit 1;
+}
+grep -q 'WINDOW_NANOS = 500_000_000L' "$ROOT/src/client/java/dev/zazuzin/zst/RowDoubleClick.java" || {
+  echo "Saved-server row double-click window is incorrect" >&2; exit 1;
+}
+if grep -qE 'rowAtPosition|joinServerEntry|handleCompletedRowClick|registerRowClick' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java"; then
+  echo "Obsolete screen-level double-click bridge remains" >&2; exit 1
+fi
+grep -q 'OnlineServerEntry must receive them directly' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Screen listener does not explicitly preserve native row clicks" >&2; exit 1;
+}
+grep -q 'number.intValue() == 1' "$ROOT/src/client/java/dev/zazuzin/zst/RuntimeAccess.java" || {
+  echo "Minecraft 26.2 SDL primary mouse ID is incorrect" >&2; exit 1;
+}
+if grep -R -nE 'mouseButton\(mouse\) != 0|mouseButton\(mouseEvent\) == 0' "$ROOT/src/client/java/dev/zazuzin/zst"; then
+  echo "Legacy zero-based primary mouse checks remain" >&2; exit 1
+fi
+grep -q 'ServerCategoryStore.reconcileSaved(state.saved' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "servers.dat-only Finder category recovery is missing" >&2; exit 1;
+}
+grep -q 'cleanupCause(String reason)' "$ROOT/src/client/java/dev/zazuzin/zst/DisconnectReason.java" || {
+  echo "Conservative automatic cleanup classifier is missing" >&2; exit 1;
+}
+grep -q 'isVersionMismatch(normalized)' "$ROOT/src/client/java/dev/zazuzin/zst/DisconnectReason.java" || {
+  echo "ViaFabricPlus version-mismatch cleanup protection is missing" >&2; exit 1;
+}
+grep -q 'ConfigPaths.seekerDirectory' "$ROOT/src/client/java/dev/zazuzin/zst/ToolState.java" || {
+  echo "Unified Server Seeker config directory is missing" >&2; exit 1;
+}
 if grep -q 'restoreFullRows(state)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java"; then
   echo "Category hub is redundantly rebuilding the full server list" >&2; exit 1
 fi
@@ -164,7 +255,21 @@ jar tf "$JAR" | grep -qx 'assets/zazus-server-tool/icon.png' || {
   echo "Zazu's Server Seeker logo is missing from the JAR" >&2; exit 1;
 }
 
+jar tf "$JAR" | grep -qx 'dev/zazuzin/zst/mixin/OnlineServerEntryMixin.class' || {
+  echo "Minecraft online-server entry mixin class is missing from the JAR" >&2; exit 1;
+}
+jar tf "$JAR" | grep -qx 'zazus-server-seeker.mixins.json' || {
+  echo "Server Seeker mixin configuration is missing from the JAR" >&2; exit 1;
+}
+MIXIN_JSON="$(unzip -p "$JAR" zazus-server-seeker.mixins.json)"
+grep -q '"OnlineServerEntryMixin"' <<<"$MIXIN_JSON" || {
+  echo "Online server entry mixin is not enabled" >&2; exit 1;
+}
+
 MOD_JSON="$(unzip -p "$JAR" fabric.mod.json)"
+grep -q '"zazus-server-seeker.mixins.json"' <<<"$MOD_JSON" || {
+  echo "Fabric metadata does not register the server-entry mixin" >&2; exit 1;
+}
 grep -q '"homepage": "https://github.com/Zazuzin/Zazus-Server-Seeker"' <<<"$MOD_JSON" || {
   echo "Official project homepage is missing from Fabric metadata" >&2; exit 1;
 }
@@ -177,7 +282,7 @@ grep -q '"issues": "https://github.com/Zazuzin/Zazus-Server-Seeker/issues"' <<<"
 
 for cls in \
   MultiplayerManagementEntrypoint WhitelistAutoDeleteEntrypoint AutoJoinEntrypoint \
-  TitleCreditEntrypoint ServerTabsEntrypoint; do
+  TitleCreditEntrypoint ServerTabsEntrypoint BreakBlocksAccount RowDoubleClick; do
   jar tf "$JAR" | grep -qx "dev/zazuzin/zst/${cls}.class" || {
     echo "Missing entrypoint class: $cls" >&2
     exit 1
@@ -298,8 +403,8 @@ grep -q 'DisconnectReason.extract' "$ROOT/src/client/java/dev/zazuzin/zst/Whitel
 grep -q 'allServerDataLists' "$ROOT/src/client/java/dev/zazuzin/zst/ServerListAccess.java" || {
   echo "Whitelist deletion is not sweeping all ServerList backing lists" >&2; exit 1;
 }
-grep -q 'int finderY = refreshBounds != null ? refreshBounds.y()' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
-  echo "Bottom-aligned non-overlapping Multiplayer control rail is missing" >&2; exit 1;
+grep -q 'int finderY = nativeRefreshBounds != null ? nativeRefreshBounds.y()' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Bottom-aligned Multiplayer control rail is missing" >&2; exit 1;
 }
 grep -q 'registerControlMouseInterceptor' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Left-rail click interception is missing" >&2; exit 1;
@@ -322,8 +427,8 @@ grep -q 'screenListElements' "$ROOT/src/client/java/dev/zazuzin/zst/Reflection.j
 grep -q 'END_CLIENT_TICK' "$ROOT/src/client/java/dev/zazuzin/zst/WhitelistAutoDeleteEntrypoint.java" || {
   echo "Whitelist global client-tick fallback is missing" >&2; exit 1;
 }
-grep -q 'WhitelistAutoDeleteEntrypoint.noteAttempt(buttons.endpoint)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
-  echo "Manual row-click whitelist attempt capture is missing" >&2; exit 1;
+grep -q 'WhitelistAutoDeleteEntrypoint.noteAttempt(endpoint)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+  echo "Native server-entry whitelist attempt capture is missing" >&2; exit 1;
 }
 
 # Finder provider and supplementary-probe guards. Discovery must fail over
@@ -349,8 +454,8 @@ grep -q 'BREAKBLOCKS_AGE_OPTIONS = {1, 7, 14, 21, 30}' "$ROOT/src/client/java/de
 grep -q 'breakBlocksMaxAgeDays = 7' "$ROOT/src/client/java/dev/zazuzin/zst/ToolState.java" || {
   echo "BreakBlocks default age is not 7 days" >&2; exit 1;
 }
-grep -q 'int page = requestNumber + 1' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
-  echo "BreakBlocks pagination is not 1-based" >&2; exit 1;
+grep -q 'for (int page = 1; page <= safePageCount; page++) pages.add(page);' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
+  echo "BreakBlocks shuffled pagination is not one-based" >&2; exit 1;
 }
 grep -q 'breakBlocksProgressLabel' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
   echo "BreakBlocks page/API/live diagnostics are missing" >&2; exit 1;
@@ -379,7 +484,7 @@ grep -q 'CONNECT_TIMEOUT_MS = 10_000' "$ROOT/src/client/java/dev/zazuzin/zst/Van
 grep -q 'READ_TIMEOUT_MS = 5_000' "$ROOT/src/client/java/dev/zazuzin/zst/VanillaStatusProbe.java" || {
   echo "Finder status-response timeout is incorrect" >&2; exit 1;
 }
-grep -q 'visibleAndContains(state.deleteAllButton, x, y)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
+grep -q 'dispatchIfHit(state.deleteAllButton, mouse, x, y)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || {
   echo "Bulk-delete mouse interception is missing" >&2; exit 1;
 }
 grep -q 'Search Mode:' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
@@ -447,6 +552,18 @@ grep -q 'X-RateLimit-Reset' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksRa
 }
 grep -q 'reportedLimit / 2' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksRateBudget.java" || {
   echo "BreakBlocks rate-limit estimate is not reduced after HTTP 429" >&2; exit 1;
+}
+grep -q 'BreakBlocksAccount.snapshot().paid()' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksRateBudget.java" || {
+  echo "Confirmed paid BreakBlocks tiers do not bypass the local contribution ceiling" >&2; exit 1;
+}
+grep -q 'pageCountForResults(parsed.filtered(), API_LIMIT)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
+  echo "BreakBlocks pagination is not derived from the filtered result count" >&2; exit 1;
+}
+grep -q 'pages.removeIf(s.breakBlocksRequestedPages::contains)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
+  echo "Expanded BreakBlocks traversal can repeat already requested pages" >&2; exit 1;
+}
+grep -q 'patreon_tier' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksAccount.java" || {
+  echo "BreakBlocks Patreon tier metadata is not parsed" >&2; exit 1;
 }
 grep -q 'breakblocks-contribution-queue.txt' "$ROOT/src/client/java/dev/zazuzin/zst/BreakBlocksContributor.java" || {
   echo "Persistent BreakBlocks contribution queue is missing" >&2; exit 1;
@@ -560,7 +677,7 @@ grep -q 'SCANNED_FAILURES_BEFORE_DELETE = 3' "$ROOT/src/client/java/dev/zazuzin/
 grep -q 'tickScannedHealthCleanup(state)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Scanned Servers health cleanup is not wired into the Multiplayer tick" >&2; exit 1;
 }
-grep -q 'Auto-deleted unreachable scanned server' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+grep -q 'Auto-deleted scanned server after' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Scanned Servers health deletion path is missing" >&2; exit 1;
 }
 grep -q 'stillEligibleForScannedHealthDelete' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
@@ -633,7 +750,7 @@ grep -q 'ServerTabsEntrypoint::onPlayDisconnect' "$ROOT/src/client/java/dev/zazu
 
 # Favourites are a hard boundary for all automatic removal paths, and
 # category Auto Join is available in Servers/Scanned but never Favourites.
-grep -q 'Kept favourite after whitelist rejection' "$ROOT/src/client/java/dev/zazuzin/zst/WhitelistAutoDeleteEntrypoint.java" || {
+grep -q 'Kept favourite after " + cause.label()' "$ROOT/src/client/java/dev/zazuzin/zst/WhitelistAutoDeleteEntrypoint.java" || {
   echo "Whitelist favourite protection is missing" >&2; exit 1;
 }
 grep -q '!isFavouriteData(data)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerListAccess.java" || {
@@ -671,7 +788,7 @@ grep -q 'cachedLatencyMillis(endpoint)' "$ROOT/src/client/java/dev/zazuzin/zst/S
 }
 
 # Deletion recovery and persisted health-state guards.
-grep -q 'zazus-server-tool-backups' "$ROOT/src/client/java/dev/zazuzin/zst/ServerCategoryStore.java" || { echo "Automatic servers.dat backups missing" >&2; exit 1; }
+grep -q 'seekerDir.resolve("backups")' "$ROOT/src/client/java/dev/zazuzin/zst/ServerCategoryStore.java" || { echo "Automatic servers.dat backups missing" >&2; exit 1; }
 grep -q 'Undo Last Delete' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || { echo "Undo Last Delete control missing" >&2; exit 1; }
 grep -q 'recordHealthFailure' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || { echo "Persistent health failure recording missing" >&2; exit 1; }
 if grep -qE 'buttons\.health|sb\.health|healthLabel\(' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java"; then
@@ -683,7 +800,7 @@ grep -q 'ScreenRoute route = SCREEN_ROUTES.get(screen)' "$ROOT/src/client/java/d
 grep -q 'new ScreenRoute(view, hub)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Category Back routing is missing" >&2; exit 1;
 }
-grep -q 'visibleAndContains(state.undoButton' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || { echo "Undo click is not routed through the Multiplayer interceptor" >&2; exit 1; }
+grep -q 'dispatchIfHit(state.undoButton, mouse, x, y)' "$ROOT/src/client/java/dev/zazuzin/zst/MultiplayerManagementEntrypoint.java" || { echo "Undo click is not routed through the Multiplayer interceptor" >&2; exit 1; }
 if grep -qE 'Protected Server|toggleProtected|P✓|isProtectedData' "$ROOT/src/client/java/dev/zazuzin/zst/"*.java; then echo "Removed protection feature is still present" >&2; exit 1; fi
 
 # Server Notes native-merge regression guards.
@@ -758,8 +875,8 @@ grep -q 'allRowWidgets(state.screen)' "$ROOT/src/client/java/dev/zazuzin/zst/Ser
 if grep -R -n 'MultiplayerNotesIntegration.initialize' "$ROOT/src/client/java"; then
   echo "Standalone MultiplayerNotesIntegration is still initialized" >&2; exit 1;
 fi
-grep -q 'resolve("zazus-server-notes")' "$ROOT/src/client/java/dev/zazu/servernotes/storage/ServerProfileStore.java" || {
-  echo "Server Notes data directory changed" >&2; exit 1;
+grep -q 'ConfigPaths.seekerDirectory(configDirectory).resolve("server-notes")' "$ROOT/src/client/java/dev/zazu/servernotes/storage/ServerProfileStore.java" || {
+  echo "Server Notes unified data directory is missing" >&2; exit 1;
 }
 grep -q 'SCHEMA_VERSION = 2' "$ROOT/src/client/java/dev/zazu/servernotes/storage/ServerProfileStore.java" || {
   echo "Server Notes schema version changed" >&2; exit 1;
@@ -937,6 +1054,35 @@ public final class ApiKeyRequestTest {
             throw new AssertionError("API key leaked into BreakBlocks request URI");
         }
 
+        String vipResponse = """
+                {"displayed":20,"total":570717,"filtered":786,"results":[],"authed":true,"patreon_tier":"VIP Treatment"}
+                """;
+        ServerFinderClient.SearchResult vip = ServerFinderClient.parseSearchResult(vipResponse);
+        if (!vip.authed() || !"VIP Treatment".equals(vip.patreonTier())) {
+            throw new AssertionError("BreakBlocks paid tier metadata did not parse");
+        }
+        if (vip.filtered() != 786 || ServerFinderClient.pageCountForResults(vip.filtered(), 20) != 40) {
+            throw new AssertionError("BreakBlocks filtered results did not expand to all 40 pages");
+        }
+        BreakBlocksAccount.configure(fakeKey);
+        BreakBlocksAccount.observe(vip.authed(), vip.patreonTier());
+        BreakBlocksAccount.Snapshot vipAccount = BreakBlocksAccount.snapshot();
+        if (!vipAccount.observed() || !vipAccount.authed() || !vipAccount.paid()
+                || !"VIP Treatment".equals(vipAccount.patreonTier())) {
+            throw new AssertionError("VIP Treatment was not retained as a paid authenticated tier");
+        }
+        BreakBlocksAccount.observeJson("""
+                {"status":"refreshing","authed":true,"patreon_tier":"Advanced API Access"}
+                """);
+        BreakBlocksAccount.Snapshot advancedAccount = BreakBlocksAccount.snapshot();
+        if (!advancedAccount.paid() || !"Advanced API Access".equals(advancedAccount.patreonTier())) {
+            throw new AssertionError("Contribution response tier metadata did not update account state");
+        }
+        BreakBlocksAccount.observe(false, "VIP Treatment");
+        if (BreakBlocksAccount.snapshot().paid()) {
+            throw new AssertionError("Unauthenticated response incorrectly enabled paid-tier behavior");
+        }
+
         Path root = Files.createTempDirectory("zst-api-key-test-");
         System.setProperty("user.dir", root.toString());
 
@@ -966,7 +1112,7 @@ public final class ApiKeyRequestTest {
         // ToolState must create a blank key setting, pick up a manually edited
         // key, and preserve that key when unrelated settings are subsequently saved.
         ToolState.hasBreakBlocksApiKey();
-        Path config = root.resolve("config/zazus-server-tool.properties");
+        Path config = root.resolve("config/zazus-server-seeker/server-tool.properties");
         if (!Files.exists(config)) throw new AssertionError("Config file was not created");
 
         Properties p = new Properties();
@@ -1397,6 +1543,15 @@ public final class DisconnectReasonTest {
         if (DisconnectReason.isRateLimited("Connection timed out")) {
             throw new AssertionError("Ordinary timeout was misclassified as rate-limited");
         }
+        String neoForge = "You are trying to connect to a server that is running NeoForge, but you are not. "
+                + "Please install NeoForge Version: 21.1.248 to connect to this server.";
+        if (DisconnectReason.cleanupCause(neoForge) != DisconnectReason.CleanupCause.REQUIRED_MODS) {
+            throw new AssertionError("Current NeoForge loader rejection was not classified for cleanup");
+        }
+        if (DisconnectReason.cleanupCause("Outdated client! Please use Minecraft 1.21.1")
+                != DisconnectReason.CleanupCause.NONE) {
+            throw new AssertionError("Version mismatch was incorrectly classified for cleanup");
+        }
         String concise = DisconnectReason.concise("Connection Lost | Failed to connect to the server | Connection timed out | Back to Server List");
         if (!"Connection timed out".equals(concise)) {
             throw new AssertionError("Disconnect reason was not reduced to the useful detail: " + concise);
@@ -1407,7 +1562,7 @@ JAVA
 javac --release 25 -cp "$JAR" -d "$DISCONNECT_TEST_DIR" "$DISCONNECT_TEST_DIR/dev/zazuzin/zst/DisconnectReasonTest.java"
 java -Duser.dir="$DISCONNECT_TEST_DIR" -cp "$JAR:$DISCONNECT_TEST_DIR" dev.zazuzin.zst.DisconnectReasonTest
 rm -rf "$DISCONNECT_TEST_DIR"
-echo "Disconnect/whitelist/rate-limit regression tests passed."
+echo "Disconnect/cleanup/rate-limit regression tests passed."
 
 RUNTIME_TEST_DIR="$(mktemp -d)"
 mkdir -p "$RUNTIME_TEST_DIR/dev/zazuzin/zst" "$RUNTIME_TEST_DIR/net/minecraft/client/multiplayer" "$RUNTIME_TEST_DIR/net/fabricmc/api"

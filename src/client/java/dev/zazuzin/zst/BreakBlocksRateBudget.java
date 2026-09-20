@@ -41,6 +41,7 @@ final class BreakBlocksRateBudget {
         purge(now);
         switchModeIfNeeded(authenticated);
         if (blockedUntilMs > now) return blockedUntilMs - now;
+        if (BreakBlocksAccount.snapshot().paid()) return 0L;
 
         int limit = reportedLimit > 0 ? reportedLimit : authenticated ? API_KEY_LIMIT : ANONYMOUS_LIMIT;
         int reserve = limit >= 20 ? Math.max(4, limit / 10) : 1;
@@ -95,7 +96,8 @@ final class BreakBlocksRateBudget {
         long resetAt = Math.max(blockedUntilMs, reportedResetAtMs);
         if (resetAt <= now && !REQUESTS.isEmpty()) resetAt = REQUESTS.peekFirst() + WINDOW_MS;
         long resetSeconds = resetAt <= now ? 0L : Math.max(1L, (resetAt - now + 999L) / 1_000L);
-        return new Snapshot(limit, remaining, resetSeconds, blockedUntilMs > now, REQUESTS.size(), authenticated);
+        return new Snapshot(limit, remaining, resetSeconds, blockedUntilMs > now, REQUESTS.size(), authenticated,
+                BreakBlocksAccount.snapshot().paid());
     }
 
     private static void purge(long now) {
@@ -156,5 +158,5 @@ final class BreakBlocksRateBudget {
     }
 
     record Snapshot(int limit, int remaining, long resetSeconds, boolean paused,
-                    int requestsThisWindow, boolean authenticated) {}
+                    int requestsThisWindow, boolean authenticated, boolean unlimited) {}
 }

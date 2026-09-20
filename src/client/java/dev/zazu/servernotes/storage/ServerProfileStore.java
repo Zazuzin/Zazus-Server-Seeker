@@ -3,6 +3,7 @@ package dev.zazu.servernotes.storage;
 import dev.zazu.servernotes.model.ServerIdentity;
 import dev.zazu.servernotes.model.ServerProfile;
 import dev.zazu.servernotes.util.SimpleJson;
+import dev.zazuzin.zst.ConfigPaths;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -24,7 +25,7 @@ public final class ServerProfileStore {
     private final LinkedHashMap<String, ServerProfile> profiles = new LinkedHashMap<>();
 
     public ServerProfileStore(Path configDirectory) {
-        this.directory = configDirectory.resolve("zazus-server-notes");
+        this.directory = ConfigPaths.seekerDirectory(configDirectory).resolve("server-notes");
         this.file = directory.resolve("server-profiles.json");
         this.backupFile = directory.resolve("server-profiles.json.bak");
         load();

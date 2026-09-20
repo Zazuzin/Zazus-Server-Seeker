@@ -7,7 +7,6 @@ import dev.zazu.servernotes.storage.ServerProfileStore;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.Map;
 import java.util.Set;
 
 public final class ServerPlayerService {
