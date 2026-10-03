@@ -117,6 +117,31 @@ public final class ToolStateUpgradeTest {
         if (ToolState.contributeVerifiedServers || ToolState.authDetectionEnabled) throw new AssertionError("opt-outs changed");
         if (ToolState.autoAddLimit != 50 || ToolState.finderSourceIndex != 4 || ToolState.breakBlocksMaxAgeDays != 14) throw new AssertionError("numeric settings changed");
         if (ToolState.addedCount != 123 || ToolState.deletedCount != 45) throw new AssertionError("stats changed");
+        if (!"1.21*".equals(ToolState.versionFilter)) {
+            throw new AssertionError("legacy versionIndex was not migrated to its original filter");
+        }
+        if (!"1.21*".equals(ServerFinderClient.versionOption(
+                ServerFinderClient.versionIndexForFilter(ToolState.versionFilter, ToolState.versionIndex)))) {
+            throw new AssertionError("legacy version filter moved after adding 26.3");
+        }
+        int version263 = ServerFinderClient.versionIndexForFilter("26.3", -1);
+        if (!"26.3".equals(ServerFinderClient.versionOption(version263))) {
+            throw new AssertionError("26.3 is missing from Finder version options");
+        }
+        if (!"*".equals(ServerFinderClient.versionOption(0))
+                || !"26.3".equals(ServerFinderClient.versionOption(1))
+                || !"26.2".equals(ServerFinderClient.versionOption(2))
+                || !"26.1".equals(ServerFinderClient.versionOption(3))) {
+            throw new AssertionError("Finder versions are not ordered Any, 26.3, 26.2, 26.1");
+        }
+        ServerFinderClient.OverlayState versionState = new ServerFinderClient.OverlayState(null, null, 854, 480);
+        versionState.versionIndex = version263;
+        versionState.minIndex = 0;
+        versionState.maxIndex = 7;
+        java.net.URI versionUri = ServerFinderClient.buildBreakBlocksPageUri(versionState, 1);
+        if (!versionUri.getRawQuery().contains("version=26.3")) {
+            throw new AssertionError("26.3 was not sent to the BreakBlocks search endpoint: " + versionUri);
+        }
 
         java.util.List<Integer> pageOrder = ServerFinderClient.shuffledBreakBlocksPages(10, new java.util.Random(2602L));
         java.util.Set<Integer> visitedPages = new java.util.LinkedHashSet<>(pageOrder);
@@ -158,6 +183,7 @@ public final class ToolStateUpgradeTest {
         if (!"false".equals(after.getProperty("authDetectionEnabled"))) throw new AssertionError("auth opt-out not preserved");
         if (!"false".equals(after.getProperty("contributeVerifiedServers"))) throw new AssertionError("contribution opt-out not preserved");
         if (!"14".equals(after.getProperty("breakBlocksMaxAgeDays"))) throw new AssertionError("age not preserved");
+        if (!"1.21*".equals(after.getProperty("versionFilter"))) throw new AssertionError("named version filter not persisted");
     }
 }
 JAVA

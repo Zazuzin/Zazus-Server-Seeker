@@ -1,3 +1,17 @@
+# 1.1.9
+
+- Ordered Finder versions newest-first: Any, 26.3, 26.2, 26.1, then older releases.
+- Replaced click-to-cycle controls with direct selection menus for version,
+  minimum/maximum players, login type, sorting, Auto-add limit, Finder source
+  and BreakBlocks result age.
+- Preserved existing saved filter values and 1.1.8 settings compatibility.
+
+# 1.1.9-rc.1
+
+- Added Minecraft 26.3 to the Finder version filter in the Minecraft 26.2 build.
+- Finder requests can now retrieve and verify 26.3 servers for ViaFabricPlus users.
+- Preserved existing saved version-filter selections when upgrading from 1.1.8.
+
 # 1.1.8
 
 ## Minecraft 26.2 reliability and discovery update
