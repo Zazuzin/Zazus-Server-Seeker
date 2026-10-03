@@ -1,10 +1,17 @@
-# Zazu's Server Seeker 1.1.8 for Minecraft 26.2
+# Zazu's Server Seeker 1.1.9 for Minecraft 26.2
 
-This update focuses on making the Multiplayer screen reliable with large server
-lists and other client mods installed.
+This update adds Minecraft 26.3 server discovery to the Minecraft 26.2 build and
+makes every multi-choice Finder filter quicker to use.
 
 ## What changed
 
+- Added 26.3 to the version filter for scanning and verifying servers. Joining a
+  26.3 server from the 26.2 client requires ViaFabricPlus.
+- Ordered version choices newest-first: Any, 26.3, 26.2, 26.1, then older releases.
+- Replaced click-to-cycle controls with direct selection menus for version,
+  minimum/maximum players, login type, sorting, Auto-add limit, Finder source
+  and BreakBlocks result age.
+- Existing saved filter choices are preserved when updating from 1.1.8.
 - Notes, Favourite, Auth and Delete row controls work consistently.
 - Double-clicking a saved server joins it again.
 - Refresh stays in its original footer position without overlapping Back,

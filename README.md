@@ -4,7 +4,7 @@
 
 Zazu's Server Seeker is a client-side Fabric mod for Minecraft Java Edition 26.2. It adds a server finder, useful Multiplayer categories, server management tools and per-server notes without requiring Meteor Client.
 
-**Current release:** `1.1.8` for Minecraft 26.2.
+**Current release:** `1.1.9` for Minecraft 26.2.
 
 - [Releases](https://github.com/Zazuzin/Zazus-Server-Seeker/releases)
 - [Issues](https://github.com/Zazuzin/Zazus-Server-Seeker/issues)
@@ -16,7 +16,8 @@ Zazu's Server Seeker is a client-side Fabric mod for Minecraft Java Edition 26.2
 - Randomizes BreakBlocks page traversal and provider-result order so simultaneous searches are less likely to test the same servers first.
 - Verified Search checks results directly before showing or adding them.
 - Quick Search shows provider results immediately for manual review.
-- Filters by version, player count and authentication type.
+- Filters by version, player count and authentication type using direct selection menus.
+- Can scan for Minecraft 26.3 servers from the 26.2 client; ViaFabricPlus is required to join them.
 - Supports continuous Auto Add with a configurable limit.
 - Organises saved servers into Favourites, Servers, Scanned Servers and Recent Servers.
 - Adds compact Notes, Favourite, authentication and Delete controls to server rows.
@@ -96,7 +97,7 @@ Do not commit or share your API key.
 ## Installation
 
 1. Install Fabric Loader and Fabric API for Minecraft 26.2.
-2. Download `Zazus-Server-Seeker-1.1.8-mc26.2.jar`.
+2. Download `Zazus-Server-Seeker-1.1.9-mc26.2.jar`.
 3. Put it in the instance's `mods` folder.
 4. Remove older Server Seeker JARs so only one version is installed.
 5. Start Minecraft and open Multiplayer.
@@ -117,7 +118,7 @@ Use JDK 25 with the included Gradle 9.5.1 wrapper and Fabric Loom project:
 
 ```bash
 ./build.sh
-./verify.sh build/libs/Zazus-Server-Seeker-1.1.8-mc26.2.jar
+./verify.sh build/libs/Zazus-Server-Seeker-1.1.9-mc26.2.jar
 ```
 
 The built JAR is written to `build/libs/`.
