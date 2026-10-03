@@ -8,6 +8,9 @@ import java.util.*;
 
 /** Persistent settings and Finder history. */
 final class ToolState {
+    private static final String[] LEGACY_VERSION_OPTIONS = {
+            "*", "26.2", "26.1", "1.21*", "1.20*", "1.19*", "1.18*", "1.16*", "1.12*", "1.8*"
+    };
     static boolean skipAddedHistory = true;
     static boolean blockDeleted = true;
     static boolean favouritesFirst = true;
@@ -22,6 +25,7 @@ final class ToolState {
     static boolean cleanupUnreachableEnabled = true;
     static int autoAddLimit = 25;
     static int versionIndex = 1;
+    static String versionFilter = "26.2";
     static int minIndex = 1;
     static int maxIndex = 7;
     static int sortIndex = 0;
@@ -72,6 +76,8 @@ final class ToolState {
         cleanupUnreachableEnabled = bool(p, "cleanupUnreachableEnabled", true);
         autoAddLimit = integer(p, "autoAddLimit", 25);
         versionIndex = integer(p, "versionIndex", 1);
+        versionFilter = p.getProperty("versionFilter", "").trim();
+        if (versionFilter.isBlank()) versionFilter = legacyVersionFilter(versionIndex);
         minIndex = integer(p, "minIndex", 1);
         maxIndex = integer(p, "maxIndex", 7);
         sortIndex = integer(p, "sortIndex", 0);
@@ -97,7 +103,7 @@ final class ToolState {
                 || !p.containsKey("contributeVerifiedServers") || !p.containsKey("authDetectionEnabled")
                 || !p.containsKey("automaticCleanupEnabled") || !p.containsKey("cleanupWhitelistEnabled")
                 || !p.containsKey("cleanupInvalidAddressEnabled") || !p.containsKey("cleanupRequiredModsEnabled")
-                || !p.containsKey("cleanupUnreachableEnabled")) save();
+                || !p.containsKey("cleanupUnreachableEnabled") || !p.containsKey("versionFilter")) save();
         else restrictConfigPermissions();
     }
 
@@ -122,6 +128,7 @@ final class ToolState {
         p.setProperty("cleanupUnreachableEnabled", String.valueOf(cleanupUnreachableEnabled));
         p.setProperty("autoAddLimit", String.valueOf(autoAddLimit));
         p.setProperty("versionIndex", String.valueOf(versionIndex));
+        p.setProperty("versionFilter", versionFilter == null || versionFilter.isBlank() ? "26.2" : versionFilter);
         p.setProperty("minIndex", String.valueOf(minIndex));
         p.setProperty("maxIndex", String.valueOf(maxIndex));
         p.setProperty("sortIndex", String.valueOf(sortIndex));
@@ -226,6 +233,10 @@ final class ToolState {
     private static boolean bool(Properties p, String key, boolean fallback) {
         String v = p.getProperty(key);
         return v == null ? fallback : Boolean.parseBoolean(v.trim());
+    }
+
+    private static String legacyVersionFilter(int index) {
+        return index >= 0 && index < LEGACY_VERSION_OPTIONS.length ? LEGACY_VERSION_OPTIONS[index] : "26.2";
     }
 
     private static int integer(Properties p, String key, int fallback) {
