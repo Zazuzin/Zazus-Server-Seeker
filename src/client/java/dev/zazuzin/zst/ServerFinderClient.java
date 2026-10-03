@@ -31,7 +31,7 @@ public final class ServerFinderClient {
     private static final long SECOND_STATUS_CONFIRM_DELAY_MS = 1_000L;
 
     private static final String[] VERSION_OPTIONS = {
-            "*", "26.2", "26.1", "1.21*", "1.20*", "1.19*", "1.18*", "1.16*", "1.12*", "1.8*"
+            "*", "26.3", "26.2", "26.1", "1.21*", "1.20*", "1.19*", "1.18*", "1.16*", "1.12*", "1.8*"
     };
     private static final int[] MIN_PLAYER_OPTIONS = {0, 1, 2, 5, 10, 20, 50, 100};
     private static final int[] MAX_PLAYER_OPTIONS = {10, 20, 50, 100, 200, 500, 1000, 999999};
@@ -69,7 +69,9 @@ public final class ServerFinderClient {
         if (old != null && old.open) return;
 
         OverlayState state = new OverlayState(client, screen, width, height);
-        state.versionIndex = clampIndex(ToolState.versionIndex, VERSION_OPTIONS.length, 1);
+        state.versionIndex = versionIndexForFilter(ToolState.versionFilter, ToolState.versionIndex);
+        ToolState.versionIndex = state.versionIndex;
+        ToolState.versionFilter = VERSION_OPTIONS[state.versionIndex];
         state.minIndex = clampIndex(ToolState.minIndex, MIN_PLAYER_OPTIONS.length, 1);
         state.maxIndex = clampIndex(ToolState.maxIndex, MAX_PLAYER_OPTIONS.length, 7);
         state.sortIndex = clampIndex(ToolState.sortIndex, SORT_LABELS.length, 0);
@@ -106,18 +108,30 @@ public final class ServerFinderClient {
                 "Close Server Finder and return to the multiplayer screen.", b -> closeOverlay(s));
 
         y += 24;
+        final int filterMenuY = y + 21;
         s.versionButton = trackedButton(s, versionLabel(s), cx - 190, y, 100,
-                "Minecraft version filter. Cycle through supported versions or Any.", b -> cycleVersion(s));
+                "Minecraft version filter. Click to choose a supported version or Any.",
+                b -> openMainOptionMenu(s, cx - 190, filterMenuY, 100, versionOptionLabels(), s.versionIndex,
+                        selected -> selectVersion(s, selected)));
         s.minButton = trackedButton(s, minLabel(s), cx - 86, y, 88,
-                "Minimum number of players currently online. Cycle through the available limits.", b -> cycleMin(s));
+                "Minimum number of players currently online. Click to choose a limit.",
+                b -> openMainOptionMenu(s, cx - 86, filterMenuY, 88, integerLabels(MIN_PLAYER_OPTIONS, false), s.minIndex,
+                        selected -> selectMin(s, selected)));
         s.maxButton = trackedButton(s, maxLabel(s), cx + 6, y, 88,
-                "Maximum number of players currently online. Choose a limit or Any.", b -> cycleMax(s));
+                "Maximum number of players currently online. Click to choose a limit or Any.",
+                b -> openMainOptionMenu(s, cx + 6, filterMenuY, 88, integerLabels(MAX_PLAYER_OPTIONS, true), s.maxIndex,
+                        selected -> selectMax(s, selected)));
         s.serverTypeButton = trackedButton(s, serverTypeLabel(s), cx + 98, y, 92,
-                "Server login type. Options: Any, Premium or Cracked.", b -> cycleServerType(s));
+                "Server login type. Click to choose Any, Premium or Cracked.",
+                b -> openMainOptionMenu(s, cx + 98, filterMenuY, 92, List.of(SERVER_TYPE_LABELS), s.serverTypeIndex,
+                        selected -> selectServerType(s, selected)));
 
         y += 24;
+        final int sortMenuY = y + 21;
         s.sortButton = trackedButton(s, sortLabel(s), cx - 194, y, 128,
-                "Result order. Cycle through Recent, Players, Ping and other available options.", b -> cycleSort(s));
+                "Result order. Click to choose how discovered servers are sorted.",
+                b -> openMainOptionMenu(s, cx - 194, sortMenuY, 128, List.of(SORT_LABELS), s.sortIndex,
+                        selected -> selectSort(s, selected)));
         s.blockedButton = trackedButton(s, blockedLabel(), cx - 62, y, 128,
                 "View, unblock or clear servers excluded from future searches.", b -> showBlockedList(s));
         s.settingsButton = trackedButton(s, "Settings", cx + 70, y, 124,
@@ -173,6 +187,55 @@ public final class ServerFinderClient {
         return widget;
     }
 
+    private static void openMainOptionMenu(OverlayState s, int x, int y, int width,
+                                           List<String> labels, int selectedIndex, IntConsumer selected) {
+        openOptionMenu(s, s.widgets, x, y, width, labels, selectedIndex, selected);
+    }
+
+    private static void openSubOptionMenu(OverlayState s, int x, int y, int width,
+                                          List<String> labels, int selectedIndex, IntConsumer selected) {
+        openOptionMenu(s, s.subWidgets, x, y, width, labels, selectedIndex, selected);
+    }
+
+    private static void openOptionMenu(OverlayState s, Collection<Object> ownerWidgets, int x, int y, int width,
+                                       List<String> labels, int selectedIndex, IntConsumer selected) {
+        try {
+            clearOptionMenu(s);
+            for (Object widget : ownerWidgets) {
+                if (!Reflection.readBoolean(widget, "visible", true)) continue;
+                s.optionMenuOwnerStates.put(widget, Reflection.readBoolean(widget, "active", true));
+                Reflection.setBoolean(widget, "active", false);
+            }
+            int optionY = y;
+            for (int i = 0; i < labels.size(); i++) {
+                final int index = i;
+                String label = (i == selectedIndex ? "✓ " : "") + labels.get(i);
+                Object option = Reflection.makeButton(label, x, optionY, width, 20, b -> {
+                    clearOptionMenu(s);
+                    selected.accept(index);
+                });
+                Reflection.addWidget(s.screen, option);
+                s.optionMenuWidgets.add(option);
+                optionY += 21;
+            }
+            Object cancel = Reflection.makeButton("Cancel", x, optionY, width, 20, b -> clearOptionMenu(s));
+            Reflection.addWidget(s.screen, cancel);
+            s.optionMenuWidgets.add(cancel);
+        } catch (Throwable t) {
+            clearOptionMenu(s);
+            log("Could not open option menu", t);
+        }
+    }
+
+    private static void clearOptionMenu(OverlayState s) {
+        try { Reflection.widgets(s.screen).removeAll(s.optionMenuWidgets); } catch (Throwable ignored) {}
+        s.optionMenuWidgets.clear();
+        for (Map.Entry<Object, Boolean> entry : s.optionMenuOwnerStates.entrySet()) {
+            Reflection.setBoolean(entry.getKey(), "active", entry.getValue());
+        }
+        s.optionMenuOwnerStates.clear();
+    }
+
     private static Object addSubLabel(OverlayState s, String text, int x, int y, int width) throws Exception {
         Object label = addSub(s, Reflection.makeButton(text, x, y, width, 20, b -> {}));
         Reflection.setBoolean(label, "active", false);
@@ -184,6 +247,7 @@ public final class ServerFinderClient {
         s.open = false;
         s.autoAdd = false;
         s.autoAddScheduleToken++;
+        clearOptionMenu(s);
         try {
             List<Object> widgets = Reflection.widgets(s.screen);
             widgets.removeAll(s.widgets);
@@ -207,32 +271,34 @@ public final class ServerFinderClient {
         MultiplayerManagementEntrypoint.rebuildRowButtons(s.screen);
     }
 
-    private static void cycleVersion(OverlayState s) {
-        s.versionIndex = (s.versionIndex + 1) % VERSION_OPTIONS.length;
+    private static void selectVersion(OverlayState s, int selected) {
+        s.versionIndex = clampIndex(selected, VERSION_OPTIONS.length, 0);
         Reflection.setButtonText(s.versionButton, versionLabel(s));
-        ToolState.versionIndex = s.versionIndex; ToolState.save();
+        ToolState.versionIndex = s.versionIndex;
+        ToolState.versionFilter = VERSION_OPTIONS[s.versionIndex];
+        ToolState.save();
         resetSearchState(s, "Version changed — search reset.");
     }
-    private static void cycleMin(OverlayState s) {
-        s.minIndex = (s.minIndex + 1) % MIN_PLAYER_OPTIONS.length;
+    private static void selectMin(OverlayState s, int selected) {
+        s.minIndex = clampIndex(selected, MIN_PLAYER_OPTIONS.length, 0);
         Reflection.setButtonText(s.minButton, minLabel(s));
         ToolState.minIndex = s.minIndex; ToolState.save();
         resetSearchState(s, "Player filter changed — search reset.");
     }
-    private static void cycleMax(OverlayState s) {
-        s.maxIndex = (s.maxIndex + 1) % MAX_PLAYER_OPTIONS.length;
+    private static void selectMax(OverlayState s, int selected) {
+        s.maxIndex = clampIndex(selected, MAX_PLAYER_OPTIONS.length, MAX_PLAYER_OPTIONS.length - 1);
         Reflection.setButtonText(s.maxButton, maxLabel(s));
         ToolState.maxIndex = s.maxIndex; ToolState.save();
         resetSearchState(s, "Player filter changed — search reset.");
     }
-    private static void cycleServerType(OverlayState s) {
-        s.serverTypeIndex = (s.serverTypeIndex + 1) % SERVER_TYPE_LABELS.length;
+    private static void selectServerType(OverlayState s, int selected) {
+        s.serverTypeIndex = clampIndex(selected, SERVER_TYPE_LABELS.length, 0);
         Reflection.setButtonText(s.serverTypeButton, serverTypeLabel(s));
         ToolState.serverTypeIndex = s.serverTypeIndex; ToolState.save();
         resetSearchState(s, "Server type changed — search reset.");
     }
-    private static void cycleSort(OverlayState s) {
-        s.sortIndex = (s.sortIndex + 1) % SORT_LABELS.length;
+    private static void selectSort(OverlayState s, int selected) {
+        s.sortIndex = clampIndex(selected, SORT_LABELS.length, 0);
         Reflection.setButtonText(s.sortButton, sortLabel(s));
         ToolState.sortIndex = s.sortIndex; ToolState.save();
         resetSearchState(s, "Sort changed — search reset.");
@@ -1013,9 +1079,10 @@ public final class ServerFinderClient {
 
     private static void toggleResult(OverlayState s, int index) { if (index >= 0 && index < s.results.size()) showDetails(s, index); }
 
-    private static void hideMain(OverlayState s) { for (Object w : s.widgets) Reflection.setBoolean(w, "visible", false); }
+    private static void hideMain(OverlayState s) { clearOptionMenu(s); for (Object w : s.widgets) Reflection.setBoolean(w, "visible", false); }
     private static void showMain(OverlayState s) { for (Object w : s.widgets) Reflection.setBoolean(w, "visible", true); refreshRows(s); }
     private static void clearSubView(OverlayState s) {
+        clearOptionMenu(s);
         try { Reflection.widgets(s.screen).removeAll(s.subWidgets); } catch (Throwable ignored) {}
         s.subWidgets.clear();
     }
@@ -1082,12 +1149,20 @@ public final class ServerFinderClient {
                     "Place favourite servers before other servers in managed lists.", b -> { ToolState.favouritesFirst = !ToolState.favouritesFirst; ToolState.save(); showSettings(s); });
             subButton(s, "Auto-add Default: " + onOff(ToolState.autoAddDefault), x + 210, y, 200,
                     "Choose whether Verified Search starts with Auto-add enabled.", b -> { ToolState.autoAddDefault = !ToolState.autoAddDefault; ToolState.save(); showSettings(s); }); y += 24;
+            final int firstChoiceMenuY = y + 21;
             subButton(s, "Auto-add Limit: " + autoAddLimitLabel(), x, y, 200,
-                    "Maximum servers Auto-add may save in one run. Cycle through the available limits.", b -> { cycleAutoAddLimit(); ToolState.save(); showSettings(s); });
+                    "Maximum servers Auto-add may save in one run. Click to choose a limit.",
+                    b -> openSubOptionMenu(s, x, firstChoiceMenuY, 200, autoAddLimitLabels(), autoAddLimitIndex(),
+                            selected -> { selectAutoAddLimit(selected); showSettings(s); }));
             subButton(s, "Finder Source: " + sourceLabel(s), x + 210, y, 200,
-                    "Discovery provider. Options include Auto, All Sources, BreakBlocks, Cornbread and MineScan.", b -> { cycleSource(s); showSettings(s); }); y += 24;
+                    "Discovery provider. Click to choose Auto, All Sources, BreakBlocks, Cornbread or MineScan.",
+                    b -> openSubOptionMenu(s, x + 210, firstChoiceMenuY, 200, List.of(SOURCE_LABELS), s.sourceIndex,
+                            selected -> { selectSource(s, selected); showSettings(s); })); y += 24;
+            final int ageMenuY = y + 21;
             subButton(s, "BreakBlocks Age: " + breakBlocksAgeLabel(), x, y, 200,
-                    "Only request BreakBlocks records seen within this many days.", b -> { cycleBreakBlocksAge(s); showSettings(s); });
+                    "Only request BreakBlocks records seen within this many days. Click to choose an age.",
+                    b -> openSubOptionMenu(s, x, ageMenuY, 200, breakBlocksAgeLabels(), breakBlocksAgeIndex(),
+                            selected -> { selectBreakBlocksAge(s, selected); showSettings(s); }));
             subButton(s, "Clear Added History (" + ToolState.addedHistoryCount() + ")", x + 210, y, 200,
                     "Forget which servers were added before so they may appear in searches again.", b -> { ToolState.clearAddedHistory(); showSettings(s); }); y += 28;
             subButton(s, "Server Seeker Stats", x, y, 200,
@@ -1362,14 +1437,41 @@ public final class ServerFinderClient {
     private static String blockedLabel() { return "Blocked Servers (" + ToolState.blockedCount() + ")"; }
     private static String sortLabel(OverlayState s) { return "Sort: " + SORT_LABELS[s.sortIndex]; }
     private static String autoAddLimitLabel() { return ToolState.autoAddLimit <= 0 ? "Unlimited" : String.valueOf(ToolState.autoAddLimit); }
-    private static void cycleAutoAddLimit() {
+    private static int autoAddLimitIndex() {
         int current = 0;
         for (int i = 0; i < AUTO_ADD_LIMITS.length; i++) if (AUTO_ADD_LIMITS[i] == ToolState.autoAddLimit) current = i;
-        ToolState.autoAddLimit = AUTO_ADD_LIMITS[(current + 1) % AUTO_ADD_LIMITS.length];
+        return current;
+    }
+    private static List<String> autoAddLimitLabels() { return integerLabels(AUTO_ADD_LIMITS, true); }
+    private static void selectAutoAddLimit(int selected) {
+        ToolState.autoAddLimit = AUTO_ADD_LIMITS[clampIndex(selected, AUTO_ADD_LIMITS.length, 1)];
+        ToolState.save();
     }
     private static String onOff(boolean value) { return value ? "ON" : "OFF"; }
     private static int clampIndex(int index, int length, int fallback) { return index >= 0 && index < length ? index : fallback; }
+    private static List<String> versionOptionLabels() {
+        ArrayList<String> labels = new ArrayList<>();
+        for (String option : VERSION_OPTIONS) labels.add(option.equals("*") ? "Any" : option);
+        return labels;
+    }
+    private static List<String> integerLabels(int[] values, boolean zeroOrHugeMeansAny) {
+        ArrayList<String> labels = new ArrayList<>();
+        for (int value : values) {
+            boolean any = zeroOrHugeMeansAny && (value == 0 || value >= 999999);
+            labels.add(any ? "Any" : String.valueOf(value));
+        }
+        return labels;
+    }
     private static String versionLabel(OverlayState s) { return "Version: " + (VERSION_OPTIONS[s.versionIndex].equals("*") ? "Any" : VERSION_OPTIONS[s.versionIndex]); }
+    static int versionIndexForFilter(String savedFilter, int fallbackIndex) {
+        if (savedFilter != null && !savedFilter.isBlank()) {
+            for (int i = 0; i < VERSION_OPTIONS.length; i++) {
+                if (VERSION_OPTIONS[i].equalsIgnoreCase(savedFilter.trim())) return i;
+            }
+        }
+        return clampIndex(fallbackIndex, VERSION_OPTIONS.length, 2);
+    }
+    static String versionOption(int index) { return VERSION_OPTIONS[clampIndex(index, VERSION_OPTIONS.length, 2)]; }
     private static String minLabel(OverlayState s) { return "Min: " + MIN_PLAYER_OPTIONS[s.minIndex]; }
     private static String maxLabel(OverlayState s) { return "Max: " + (MAX_PLAYER_OPTIONS[s.maxIndex] >= 999999 ? "Any" : MAX_PLAYER_OPTIONS[s.maxIndex]); }
     private static String serverTypeLabel(OverlayState s) { return "Type: " + SERVER_TYPE_LABELS[s.serverTypeIndex]; }
@@ -1382,8 +1484,8 @@ public final class ServerFinderClient {
         return Math.max(1, (Math.max(0, filtered) + safePageSize - 1) / safePageSize);
     }
     private static String sourceLabel(OverlayState s) { return SOURCE_LABELS[clampIndex(s.sourceIndex, SOURCE_LABELS.length, 0)]; }
-    private static void cycleSource(OverlayState s) {
-        s.sourceIndex = (s.sourceIndex + 1) % SOURCE_LABELS.length;
+    private static void selectSource(OverlayState s, int selected) {
+        s.sourceIndex = clampIndex(selected, SOURCE_LABELS.length, 0);
         ToolState.finderSourceIndex = s.sourceIndex;
         ToolState.save();
         resetSearchState(s, "Finder source changed to " + sourceLabel(s) + ".");
@@ -1396,11 +1498,19 @@ public final class ServerFinderClient {
         int days = normalizedBreakBlocksAgeDays(ToolState.breakBlocksMaxAgeDays);
         return days + (days == 1 ? " day" : " days");
     }
-    private static void cycleBreakBlocksAge(OverlayState s) {
+    private static int breakBlocksAgeIndex() {
         int current = normalizedBreakBlocksAgeDays(ToolState.breakBlocksMaxAgeDays);
         int index = 0;
         for (int i = 0; i < BREAKBLOCKS_AGE_OPTIONS.length; i++) if (BREAKBLOCKS_AGE_OPTIONS[i] == current) index = i;
-        ToolState.breakBlocksMaxAgeDays = BREAKBLOCKS_AGE_OPTIONS[(index + 1) % BREAKBLOCKS_AGE_OPTIONS.length];
+        return index;
+    }
+    private static List<String> breakBlocksAgeLabels() {
+        ArrayList<String> labels = new ArrayList<>();
+        for (int days : BREAKBLOCKS_AGE_OPTIONS) labels.add(days + (days == 1 ? " day" : " days"));
+        return labels;
+    }
+    private static void selectBreakBlocksAge(OverlayState s, int selected) {
+        ToolState.breakBlocksMaxAgeDays = BREAKBLOCKS_AGE_OPTIONS[clampIndex(selected, BREAKBLOCKS_AGE_OPTIONS.length, 4)];
         ToolState.save();
         resetSearchState(s, "BreakBlocks age changed to " + breakBlocksAgeLabel() + ".");
     }
@@ -1572,7 +1682,8 @@ public final class ServerFinderClient {
         final Object client, screen;
         final int width, height;
         final Map<Object, WidgetState> originalStates = new IdentityHashMap<>();
-        final List<Object> widgets = new ArrayList<>(), resultButtons = new ArrayList<>(), resultAddButtons = new ArrayList<>(), resultDetailButtons = new ArrayList<>(), subWidgets = new ArrayList<>();
+        final Map<Object, Boolean> optionMenuOwnerStates = new IdentityHashMap<>();
+        final List<Object> widgets = new ArrayList<>(), resultButtons = new ArrayList<>(), resultAddButtons = new ArrayList<>(), resultDetailButtons = new ArrayList<>(), subWidgets = new ArrayList<>(), optionMenuWidgets = new ArrayList<>();
         final LinkedHashSet<String> seenEndpoints = new LinkedHashSet<>();
         final List<ServerRecord> currentBatch = new ArrayList<>();
         final List<Integer> breakBlocksPageOrder = new ArrayList<>();
