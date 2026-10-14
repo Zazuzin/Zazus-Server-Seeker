@@ -884,7 +884,7 @@ grep -q 'SCHEMA_VERSION = 2' "$ROOT/src/client/java/dev/zazu/servernotes/storage
 
 EXPECTED_CLASS_MAJOR="${EXPECTED_CLASS_MAJOR:-69}"
 python3 - "$JAR" "$VERSION" "$EXPECTED_CLASS_MAJOR" <<'PY'
-import json, struct, sys, zipfile
+import json, struct, sys, zipfile, zlib
 from pathlib import PurePosixPath
 
 jar = sys.argv[1]
@@ -910,6 +910,26 @@ with zipfile.ZipFile(jar) as z:
         raise SystemExit("Standalone MultiplayerNotesIntegration was packaged")
     if "assets/zazus_server_notes/textures/gui/sprites/book.png" not in names:
         raise SystemExit("Server Notes book sprite is missing")
+
+    icon = z.read("assets/zazus-server-tool/icon.png")
+    if not icon.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise SystemExit("Server Seeker icon is not a PNG")
+    offset = 8
+    chunk = b""
+    while offset + 12 <= len(icon):
+        length = struct.unpack_from(">I", icon, offset)[0]
+        end = offset + 12 + length
+        if end > len(icon):
+            raise SystemExit("Server Seeker icon has a truncated PNG chunk")
+        chunk = icon[offset + 4:offset + 8 + length]
+        checksum = struct.unpack_from(">I", icon, offset + 8 + length)[0]
+        if zlib.crc32(chunk) != checksum:
+            raise SystemExit("Server Seeker icon has an invalid PNG checksum")
+        offset = end
+        if chunk[:4] == b"IEND":
+            break
+    if chunk[:4] != b"IEND" or offset != len(icon):
+        raise SystemExit("Server Seeker icon is missing a valid PNG ending")
 
     meta = json.loads(z.read("fabric.mod.json"))
     if meta.get("id") != "zazus-server-tool":
