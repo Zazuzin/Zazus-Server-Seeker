@@ -122,7 +122,7 @@ Use JDK 25 with the included Gradle 9.5.1 wrapper and Fabric Loom project:
 ./verify.sh build/libs/Zazus-Server-Seeker-1.2.1-mc26.2.jar
 ```
 
-The built JAR is written to `build/libs/`. The 26.3 source is on the [`mc26.3`](https://github.com/Zazuzin/Zazus-Server-Seeker/tree/mc26.3) branch.
+The built JAR is written to `build/libs/`. The 26.3 source is in [`versions/mc26.3/`](versions/mc26.3/) on this branch. To build it, run `cd versions/mc26.3` followed by `./build.sh` and `./verify.sh`.
 
 ## Credits
 

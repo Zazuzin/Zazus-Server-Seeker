@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "zazus-server-tool",
+  "version": "${version}",
+  "name": "Zazu's Server Seeker",
+  "description": "Client-side Minecraft server discovery and management with categories, favourites, verified scanning, authentication detection, Server Notes, sequential Auto Join, deletion recovery and optional ViaFabricPlus integration.",
+  "authors": ["Zazuzin"],
+  "license": "GPL-3.0-only",
+  "icon": "assets/zazus-server-tool/icon.png",
+  "contact": {
+    "homepage": "https://github.com/Zazuzin/Zazus-Server-Seeker",
+    "sources": "https://github.com/Zazuzin/Zazus-Server-Seeker",
+    "issues": "https://github.com/Zazuzin/Zazus-Server-Seeker/issues"
+  },
+  "environment": "client",
+  "mixins": [
+    "zazus-server-seeker.mixins.json"
+  ],
+  "entrypoints": {
+    "client": [
+      "dev.zazu.servernotes.client.ZazusServerNotesClient",
+      "dev.zazuzin.zst.MultiplayerManagementEntrypoint",
+      "dev.zazuzin.zst.WhitelistAutoDeleteEntrypoint",
+      "dev.zazuzin.zst.AutoJoinEntrypoint",
+      "dev.zazuzin.zst.TitleCreditEntrypoint",
+      "dev.zazuzin.zst.ServerTabsEntrypoint"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "minecraft": "~26.3",
+    "fabric-api": "*",
+    "java": ">=25"
+  },
+  "suggests": {
+    "viafabricplus": ">=4.6.1"
+  }
+}

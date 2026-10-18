@@ -11,4 +11,4 @@ Choose the JAR that matches your Minecraft version: **26.2** or **26.3**. Instal
 - Improve the placement of per-server controls and preserve existing server lists, notes and settings.
 - Add a separate Minecraft 26.3 Fabric build. The 26.2 build can still find 26.3 servers, with ViaFabricPlus required to join them from a 26.2 client.
 
-The 26.2 source is on `main`; the 26.3 source is on `mc26.3`. Both JARs passed the clean build and verification suites. The public API does not provide a definitive paid-key validation without a working authenticated key.
+The 26.2 source is at the repository root; the 26.3 source is in `versions/mc26.3/` on `main`. Both JARs passed the clean build and verification suites. The public API does not provide a definitive paid-key validation without a working authenticated key.
