@@ -11,6 +11,13 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - minecraft: "26.2"
+            path: .
+          - minecraft: "26.3"
+            path: versions/mc26.3
     steps:
       - name: Check out source
         uses: actions/checkout@v5
@@ -27,18 +34,21 @@ jobs:
           gradle-version: "9.5.1"
 
       - name: Build verified JAR
+        working-directory: ${{ matrix.path }}
         run: ./build.sh
 
       - name: Run regression suite
+        working-directory: ${{ matrix.path }}
         run: ./verify.sh
 
       - name: Run compatibility suite
+        working-directory: ${{ matrix.path }}
         run: ./release_compatibility_tests.sh
 
       - name: Upload verified JAR
         uses: actions/upload-artifact@v7
         with:
-          name: zazus-server-seeker
-          path: build/libs/*.jar
+          name: zazus-server-seeker-mc${{ matrix.minecraft }}
+          path: ${{ matrix.path }}/build/libs/*.jar
           if-no-files-found: error
           retention-days: 14

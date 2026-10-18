@@ -18,17 +18,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out Minecraft 26.2
+      - name: Check out both Minecraft versions
         uses: actions/checkout@v5
-        with:
-          path: mc26.2
-          ref: ${{ github.sha }}
-
-      - name: Check out Minecraft 26.3
-        uses: actions/checkout@v5
-        with:
-          path: mc26.3
-          ref: ecaf3250649106e7b8244e9f3f8af37fb4a48087
 
       - name: Set up Java 25
         uses: actions/setup-java@v5
@@ -42,14 +33,13 @@ jobs:
           gradle-version: "9.5.1"
 
       - name: Build and verify Minecraft 26.2
-        working-directory: mc26.2
         run: |
           ./build.sh
           ./verify.sh
           ./release_compatibility_tests.sh
 
       - name: Build and verify Minecraft 26.3
-        working-directory: mc26.3
+        working-directory: versions/mc26.3
         run: |
           ./build.sh
           ./verify.sh
@@ -60,17 +50,25 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          jar262=mc26.2/build/libs/Zazus-Server-Seeker-1.2.1-mc26.2.jar
-          jar263=mc26.3/build/libs/Zazus-Server-Seeker-1.2.1-mc26.3.jar
+          jar262=build/libs/Zazus-Server-Seeker-1.2.1-mc26.2.jar
+          jar263=versions/mc26.3/build/libs/Zazus-Server-Seeker-1.2.1-mc26.3.jar
           test -s "$jar262"
           test -s "$jar263"
           if gh release view v1.2.1 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload v1.2.1 "$jar262" "$jar263" --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit v1.2.1 --title "Zazu's Server Seeker v1.2.1" --notes-file mc26.2/RELEASE_NOTES.md --repo "$GITHUB_REPOSITORY"
+            gh release edit v1.2.1 --title "Zazu's Server Seeker v1.2.1" --notes-file RELEASE_NOTES.md --repo "$GITHUB_REPOSITORY"
           else
             gh release create v1.2.1 "$jar262" "$jar263" \
               --target "$GITHUB_SHA" \
               --title "Zazu's Server Seeker v1.2.1" \
-              --notes-file mc26.2/RELEASE_NOTES.md \
+              --notes-file RELEASE_NOTES.md \
               --repo "$GITHUB_REPOSITORY"
+          fi
+
+      - name: Remove old standalone 26.3 branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/branches/mc26.3" >/dev/null 2>&1; then
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/mc26.3"
           fi
