@@ -1,36 +1,14 @@
-# Zazu's Server Seeker 1.1.9 for Minecraft 26.2
+# Zazu's Server Seeker 1.2.1
 
-This update adds Minecraft 26.3 server discovery to the Minecraft 26.2 build and
-makes every multi-choice Finder filter quicker to use.
+Choose the JAR that matches your Minecraft version: **26.2** or **26.3**. Install Fabric API for the same version and remove older Server Seeker JARs from that instance.
 
-## What changed
+## Changes
 
-- Added 26.3 to the version filter for scanning and verifying servers. Joining a
-  26.3 server from the 26.2 client requires ViaFabricPlus.
-- Ordered version choices newest-first: Any, 26.3, 26.2, 26.1, then older releases.
-- Replaced click-to-cycle controls with direct selection menus for version,
-  minimum/maximum players, login type, sorting, Auto-add limit, Finder source
-  and BreakBlocks result age.
-- Existing saved filter choices are preserved when updating from 1.1.8.
-- Notes, Favourite, Auth and Delete row controls work consistently.
-- Double-clicking a saved server joins it again.
-- Refresh stays in its original footer position without overlapping Back,
-  including after Auto Join returns.
-- Auto Join continues through failed servers and promotes a scanned server
-  after a stable connection.
-- Finder-owned servers can be removed after confirmed whitelist or required-mod
-  rejections. Current Forge, NeoForge, Fabric and Quilt loader messages are
-  recognised. Favourites, manual servers, timeouts and version mismatches remain
-  protected.
-- Large transferred `servers.dat` lists are recovered into Scanned Servers
-  when their Finder-generated names can be identified.
-- Server Seeker configuration, Server Notes and backups now live together under
-  `config/zazus-server-seeker/`.
-- BreakBlocks pages and provider results are shuffled for each search so users
-  are less likely to scan the same servers in the same order.
-- Paid BreakBlocks API tiers can use all available result pages reported by the
-  API. Verified-search and stable-connection contributions remain enabled and
-  queued safely.
+- Browse BreakBlocks pages from the main Multiplayer screen. Inspect a listing and press Add to save a server; browsing alone does not fill your saved list.
+- Filter browser results by version, player count, login type, sort order and age.
+- Check an optional BreakBlocks API key's reported account tier from Finder settings. Discovery still follows the API's page and request limits.
+- Keep Browse BreakBlocks off the Favourites, Servers, Scanned Servers and Recent Servers screens.
+- Improve the placement of per-server controls and preserve existing server lists, notes and settings.
+- Add a separate Minecraft 26.3 Fabric build. The 26.2 build can still find 26.3 servers, with ViaFabricPlus required to join them from a 26.2 client.
 
-Existing server lists, settings, favourites, notes, categories, auth results,
-recent servers and contribution state are preserved when upgrading.
+The 26.2 source is on `main`; the 26.3 source is on `mc26.3`. Both JARs passed the clean build and verification suites. The public API does not provide a definitive paid-key validation without a working authenticated key.

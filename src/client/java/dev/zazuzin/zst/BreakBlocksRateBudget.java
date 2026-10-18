@@ -110,6 +110,10 @@ final class BreakBlocksRateBudget {
     }
 
     private static void switchModeIfNeeded(boolean authenticated) {
+        // Public endpoints may accept an invalid Bearer token and still return
+        // HTTP 200 without auth metadata. Do not grant a higher local budget
+        // until BreakBlocks has explicitly confirmed authentication.
+        authenticated = authenticated && BreakBlocksAccount.snapshot().authed();
         if (reportedAuthenticated != null && reportedAuthenticated == authenticated) return;
         reportedAuthenticated = authenticated;
         reportedLimit = authenticated ? API_KEY_LIMIT : ANONYMOUS_LIMIT;

@@ -40,7 +40,7 @@ public final class ServerNotesScreen extends BaseServerScreen {
 
     private void initOverview() {
         int center = this.width / 2;
-        int y = 84;
+        int y = Math.min(84, Math.max(18, height - 126));
         int small = 98;
 
         addRenderableWidget(Button.builder(Component.literal("Notes"), button ->
@@ -76,11 +76,12 @@ public final class ServerNotesScreen extends BaseServerScreen {
     private void initPlayersView() {
         int center = width / 2;
         List<ServerPlayerRecord> players = safeOrderedPlayers();
-        int maxPage = Math.max(0, (players.size() - 1) / PLAYER_PAGE_SIZE);
+        int pageSize = playerRowsPerPage();
+        int maxPage = Math.max(0, (players.size() - 1) / pageSize);
         if (playerPage > maxPage) playerPage = maxPage;
 
-        int start = playerPage * PLAYER_PAGE_SIZE;
-        int end = Math.min(players.size(), start + PLAYER_PAGE_SIZE);
+        int start = playerPage * pageSize;
+        int end = Math.min(players.size(), start + pageSize);
         int left = center - 150;
 
         for (int i = start; i < end; i++) {
@@ -100,7 +101,7 @@ public final class ServerNotesScreen extends BaseServerScreen {
             }
         }).bounds(center - 100, height - 52, 96, 20).build());
         addRenderableWidget(Button.builder(Component.literal("Next >"), button -> {
-            if ((playerPage + 1) * PLAYER_PAGE_SIZE < safeOrderedPlayers().size()) {
+            if ((playerPage + 1) * pageSize < safeOrderedPlayers().size()) {
                 minecraft.gui.setScreen(new ServerNotesScreen(parent, profileKey, true, playerPage + 1));
             }
         }).bounds(center + 4, height - 52, 96, 20).build());
@@ -120,6 +121,10 @@ public final class ServerNotesScreen extends BaseServerScreen {
             this.minecraft.player.getZ(),
             this.minecraft.level.dimension().identifier().toString()
         ));
+    }
+
+    private int playerRowsPerPage() {
+        return Math.max(1, Math.min(PLAYER_PAGE_SIZE, (height - 125) / 25 + 1));
     }
 
     @Override
@@ -144,7 +149,8 @@ public final class ServerNotesScreen extends BaseServerScreen {
         try {
             ServerProfile profile = profile();
             List<ServerPlayerRecord> players = safeOrderedPlayers();
-            int pages = Math.max(1, (players.size() + PLAYER_PAGE_SIZE - 1) / PLAYER_PAGE_SIZE);
+            int pageSize = playerRowsPerPage();
+            int pages = Math.max(1, (players.size() + pageSize - 1) / pageSize);
             if (playerPage >= pages) playerPage = pages - 1;
 
             centered(graphics, "Players - " + profile.displayAddress(), 18, 0xFFFFFFFF);
@@ -156,8 +162,8 @@ public final class ServerNotesScreen extends BaseServerScreen {
                 return;
             }
 
-            int start = playerPage * PLAYER_PAGE_SIZE;
-            int end = Math.min(players.size(), start + PLAYER_PAGE_SIZE);
+            int start = playerPage * pageSize;
+            int end = Math.min(players.size(), start + pageSize);
             int left = width / 2 - 150;
             for (int i = start; i < end; i++) {
                 ServerPlayerRecord record = players.get(i);

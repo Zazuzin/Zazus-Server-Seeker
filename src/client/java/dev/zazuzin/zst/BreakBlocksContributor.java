@@ -172,6 +172,7 @@ final class BreakBlocksContributor {
             }
         }
 
+        ToolState.reloadBreakBlocksApiKey();
         String apiKey = ToolState.breakBlocksApiKey();
         BreakBlocksAccount.configure(apiKey);
         long quotaDelayMs = BreakBlocksRateBudget.contributionDelayMillis(!apiKey.isBlank());

@@ -346,6 +346,12 @@ grep -q 'setVisibleActive(widget, false, false)' "$ROOT/src/client/java/dev/zazu
 grep -q 'requestViewAfterRefresh' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Category-preserving refresh path is missing" >&2; exit 1;
 }
+grep -q 'setVisibleActive(state.browseButton, hub, hub)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
+  echo "Browse BreakBlocks must be visible only on the Multiplayer hub" >&2; exit 1;
+}
+if grep -q 'setBounds(state.browseButton, railX' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java"; then
+  echo "Browse BreakBlocks remains positioned in category screens" >&2; exit 1
+fi
 grep -q 'refreshCategoryInPlace(state)' "$ROOT/src/client/java/dev/zazuzin/zst/ServerTabsEntrypoint.java" || {
   echo "Refresh does not reload the active category in place" >&2; exit 1;
 }
@@ -1078,8 +1084,18 @@ public final class ApiKeyRequestTest {
                 {"displayed":20,"total":570717,"filtered":786,"results":[],"authed":true,"patreon_tier":"VIP Treatment"}
                 """;
         ServerFinderClient.SearchResult vip = ServerFinderClient.parseSearchResult(vipResponse);
-        if (!vip.authed() || !"VIP Treatment".equals(vip.patreonTier())) {
+        if (!vip.authStatusPresent() || !vip.authed() || !"VIP Treatment".equals(vip.patreonTier())) {
             throw new AssertionError("BreakBlocks paid tier metadata did not parse");
+        }
+        ServerFinderClient.SearchResult publicResponse = ServerFinderClient.parseSearchResult(
+                "{\"displayed\":1,\"total\":500000,\"filtered\":20,\"results\":[]}");
+        if (publicResponse.authStatusPresent() || publicResponse.authed()) {
+            throw new AssertionError("Missing auth metadata was mistaken for a rejected key");
+        }
+        ServerFinderClient.SearchResult rejectedResponse = ServerFinderClient.parseSearchResult(
+                "{\"data\":{\"displayed\":0,\"results\":[],\"authed\":false}}");
+        if (!rejectedResponse.authStatusPresent() || rejectedResponse.authed()) {
+            throw new AssertionError("Explicit authed=false was lost");
         }
         if (vip.filtered() != 786 || ServerFinderClient.pageCountForResults(vip.filtered(), 20) != 40) {
             throw new AssertionError("BreakBlocks filtered results did not expand to all 40 pages");
@@ -1102,9 +1118,21 @@ public final class ApiKeyRequestTest {
         if (BreakBlocksAccount.snapshot().paid()) {
             throw new AssertionError("Unauthenticated response incorrectly enabled paid-tier behavior");
         }
-
+        BreakBlocksAccount.configure("another-key");
+        if (BreakBlocksRateBudget.snapshot(true).limit() != 20) {
+            throw new AssertionError("Unconfirmed key was granted the authenticated request allowance");
+        }
+        BreakBlocksAccount.observe(true, "Advanced API Access");
+        if (BreakBlocksRateBudget.snapshot(true).limit() != 100) {
+            throw new AssertionError("Confirmed key did not receive its authenticated request allowance");
+        }
+        BreakBlocksAccount.configure(fakeKey);
         Path root = Files.createTempDirectory("zst-api-key-test-");
         System.setProperty("user.dir", root.toString());
+        if (!"abc".equals(ToolState.normalizeApiKeyValue("  \"Bearer abc\"  "))
+                || !"abc".equals(ToolState.normalizeApiKeyValue("bearer abc"))) {
+            throw new AssertionError("Copied Bearer prefix or quotes were not normalized");
+        }
 
         ServerFinderClient.OverlayState finder = new ServerFinderClient.OverlayState(null, null, 0, 0);
         finder.versionIndex = 1;
@@ -1112,6 +1140,22 @@ public final class ApiKeyRequestTest {
         finder.maxIndex = 7;
         finder.serverTypeIndex = 0;
         finder.sortIndex = 0;
+        for (int height : new int[] {200, 258, 480}) {
+            ServerFinderClient.OverlayState layout = new ServerFinderClient.OverlayState(null, null, 412, height);
+            int finderRows = ServerFinderClient.finderRowsPerPage(layout);
+            if (129 + finderRows * 23 + 2 + 20 > height - 8) {
+                throw new AssertionError("Finder navigation was clipped at height " + height);
+            }
+            int settingsRows = ServerFinderClient.settingsRowsPerPage(layout);
+            if (107 + settingsRows * 28 + 7 + 20 > height - 8) {
+                throw new AssertionError("Settings navigation was clipped at height " + height);
+            }
+            if (84 + ServerFinderClient.detailRowsPerPage(layout) * 24 > height - 28
+                    || 60 + ServerFinderClient.listRowsPerPage(layout) * 23 > height - 52
+                    || 127 + ServerFinderClient.browserRowsPerPage(layout) * 23 + 22 > height) {
+                throw new AssertionError("A Finder subview covered its navigation at height " + height);
+            }
+        }
         ToolState.breakBlocksMaxAgeDays = 30;
         String firstPage = ServerFinderClient.buildBreakBlocksPageUri(finder, 1).toString();
         if (!firstPage.contains("page=1")) throw new AssertionError("BreakBlocks first page is not page=1: " + firstPage);
@@ -1129,6 +1173,20 @@ public final class ApiKeyRequestTest {
             throw new AssertionError("Invalid BreakBlocks age/page was not safely normalized: " + invalidAge);
         }
 
+        String browserPage = ServerFinderClient.buildBrowserPageUri(1, 2, 4, 1, 2, 7, 17).toString();
+        if (!browserPage.contains("version=26.3") || !browserPage.contains("minUsers=2")
+                || !browserPage.contains("maxUsers=200") || !browserPage.contains("offlineOnly=on")
+                || !browserPage.contains("sort=users") || !browserPage.contains("maxAge=7")
+                || !browserPage.contains("page=17")) {
+            throw new AssertionError("Browser filters/page were not passed through to BreakBlocks: " + browserPage);
+        }
+        if (ServerFinderClient.browserPageLimit(786, false, false) != 10
+                || ServerFinderClient.browserPageLimit(786, false, true) != 2
+                || ServerFinderClient.browserPageLimit(786, true, false) != 40
+                || ServerFinderClient.browserPageLimit(3, false, false) != 1) {
+            throw new AssertionError("Browser exceeded a public page cap or truncated paid results");
+        }
+
         // ToolState must create a blank key setting, pick up a manually edited
         // key, and preserve that key when unrelated settings are subsequently saved.
         ToolState.hasBreakBlocksApiKey();
@@ -1143,6 +1201,21 @@ public final class ApiKeyRequestTest {
 
         ToolState.reloadBreakBlocksApiKey();
         if (!ToolState.hasBreakBlocksApiKey()) throw new AssertionError("Manual API-key edit was not reloaded");
+        var refresh = ServerFinderClient.class.getDeclaredMethod("refreshConfiguredApiKey", ServerFinderClient.OverlayState.class);
+        refresh.setAccessible(true);
+        refresh.invoke(null, finder);
+        finder.apiKeyDisabledForSession = true;
+        finder.apiKeyResponseWithoutAuthStatus = true;
+        p.setProperty("breakBlocksApiKey", "replacement-test-key");
+        try (var writer = Files.newBufferedWriter(config, StandardCharsets.UTF_8)) { p.store(writer, "test"); }
+        refresh.invoke(null, finder);
+        if (finder.apiKeyDisabledForSession || finder.apiKeyResponseWithoutAuthStatus
+                || !"replacement-test-key".equals(finder.lastConfiguredApiKey)) {
+            throw new AssertionError("Editing a rejected key did not clear the previous key's status");
+        }
+        p.setProperty("breakBlocksApiKey", fakeKey);
+        try (var writer = Files.newBufferedWriter(config, StandardCharsets.UTF_8)) { p.store(writer, "test"); }
+        ToolState.reloadBreakBlocksApiKey();
         ToolState.skipAddedHistory = !ToolState.skipAddedHistory;
         ToolState.finderSourceIndex = 4;
         ToolState.breakBlocksMaxAgeDays = 21;
