@@ -86,7 +86,7 @@ final class ToolState {
         breakBlocksMaxAgeDays = normalizeBreakBlocksAge(integer(p, "breakBlocksMaxAgeDays", 7));
         addedCount = longValue(p, "addedCount", 0);
         deletedCount = longValue(p, "deletedCount", 0);
-        breakBlocksApiKey = p.getProperty("breakBlocksApiKey", "").trim();
+        breakBlocksApiKey = normalizeApiKeyValue(p.getProperty("breakBlocksApiKey", ""));
 
         ADDED_HISTORY.clear();
         BLOCKED.clear();
@@ -213,7 +213,15 @@ final class ToolState {
     static Path configDir() { return CONFIG_DIR; }
 
     static synchronized String breakBlocksApiKey() {
-        return breakBlocksApiKey == null ? "" : breakBlocksApiKey.trim();
+        return normalizeApiKeyValue(breakBlocksApiKey);
+    }
+
+    static String normalizeApiKeyValue(String value) {
+        String key = value == null ? "" : value.trim();
+        if (key.length() >= 2 && ((key.startsWith("\"") && key.endsWith("\""))
+                || (key.startsWith("'") && key.endsWith("'")))) key = key.substring(1, key.length() - 1).trim();
+        if (key.regionMatches(true, 0, "Bearer ", 0, 7)) key = key.substring(7).trim();
+        return key;
     }
 
     static synchronized boolean hasBreakBlocksApiKey() {
@@ -305,7 +313,7 @@ final class ToolState {
         Properties p = new Properties();
         try (BufferedReader reader = Files.newBufferedReader(FILE, StandardCharsets.UTF_8)) {
             p.load(reader);
-            return p.getProperty("breakBlocksApiKey", "").trim();
+            return normalizeApiKeyValue(p.getProperty("breakBlocksApiKey", ""));
         } catch (Exception ex) {
             System.err.println("[Zazu's Server Seeker] Could not reload BreakBlocks API-key setting: " + ex.getClass().getSimpleName());
             return null;

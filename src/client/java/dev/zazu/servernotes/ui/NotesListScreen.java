@@ -22,12 +22,13 @@ public final class NotesListScreen extends BaseServerScreen {
     @Override
     protected void init() {
         ServerProfile profile = profile();
-        int maxPage = Math.max(0, (profile.notes().size() - 1) / PAGE_SIZE);
+        int pageSize = rowsPerPage();
+        int maxPage = Math.max(0, (profile.notes().size() - 1) / pageSize);
         if (page > maxPage) page = maxPage;
 
         int center = width / 2;
-        int start = page * PAGE_SIZE;
-        int end = Math.min(profile.notes().size(), start + PAGE_SIZE);
+        int start = page * pageSize;
+        int end = Math.min(profile.notes().size(), start + pageSize);
 
         for (int i = start; i < end; i++) {
             ServerNote note = profile.notes().get(i);
@@ -51,7 +52,7 @@ public final class NotesListScreen extends BaseServerScreen {
             }
         }).bounds(center - 100, height - 52, 96, 20).build());
         addRenderableWidget(Button.builder(Component.literal("Next >"), button -> {
-            if ((page + 1) * PAGE_SIZE < profile().notes().size()) {
+            if ((page + 1) * rowsPerPage() < profile().notes().size()) {
                 minecraft.gui.setScreen(new NotesListScreen(parent, profileKey).withPage(page + 1));
             }
         }).bounds(center + 4, height - 52, 96, 20).build());
@@ -65,6 +66,10 @@ public final class NotesListScreen extends BaseServerScreen {
         return this;
     }
 
+    private int rowsPerPage() {
+        return Math.max(1, Math.min(PAGE_SIZE, (height - 156) / 42 + 1));
+    }
+
     @Override
     public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
         super.extractRenderState(graphics, mouseX, mouseY, delta);
@@ -76,8 +81,8 @@ public final class NotesListScreen extends BaseServerScreen {
             return;
         }
 
-        int start = page * PAGE_SIZE;
-        int end = Math.min(notes.size(), start + PAGE_SIZE);
+        int start = page * rowsPerPage();
+        int end = Math.min(notes.size(), start + rowsPerPage());
         int left = width / 2 - 160;
         for (int i = start; i < end; i++) {
             ServerNote note = notes.get(i);
@@ -89,6 +94,6 @@ public final class NotesListScreen extends BaseServerScreen {
             if (note.editedAt() != null) time += " • edited " + TimeUtil.display(note.editedAt());
             graphics.text(font, trim(time, 52), left, y + 12, 0xFF999999, true);
         }
-        centered(graphics, "Page " + (page + 1) + " / " + (Math.max(0, (notes.size() - 1) / PAGE_SIZE) + 1), 34, 0xFF999999);
+        centered(graphics, "Page " + (page + 1) + " / " + (Math.max(0, (notes.size() - 1) / rowsPerPage()) + 1), 34, 0xFF999999);
     }
 }

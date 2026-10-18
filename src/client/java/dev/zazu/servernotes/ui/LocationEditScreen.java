@@ -31,11 +31,12 @@ public final class LocationEditScreen extends BaseServerScreen {
 
         int center = width / 2;
         int boxX = center - 100;
-        nameBox = new EditBox(font, boxX, 44, 200, 20, Component.literal("Name"));
-        xBox = new EditBox(font, boxX, 74, 200, 20, Component.literal("X"));
-        yBox = new EditBox(font, boxX, 104, 200, 20, Component.literal("Y"));
-        zBox = new EditBox(font, boxX, 134, 200, 20, Component.literal("Z"));
-        dimensionBox = new EditBox(font, boxX, 164, 200, 20, Component.literal("Dimension"));
+        int top = fieldTop(), step = fieldStep();
+        nameBox = new EditBox(font, boxX, top, 200, 20, Component.literal("Name"));
+        xBox = new EditBox(font, boxX, top + step, 200, 20, Component.literal("X"));
+        yBox = new EditBox(font, boxX, top + step * 2, 200, 20, Component.literal("Y"));
+        zBox = new EditBox(font, boxX, top + step * 3, 200, 20, Component.literal("Z"));
+        dimensionBox = new EditBox(font, boxX, top + step * 4, 200, 20, Component.literal("Dimension"));
 
         nameBox.setMaxLength(80);
         xBox.setMaxLength(32);
@@ -61,10 +62,13 @@ public final class LocationEditScreen extends BaseServerScreen {
         addRenderableWidget(zBox);
         addRenderableWidget(dimensionBox);
         addRenderableWidget(Button.builder(Component.literal("Save"), button -> save())
-            .bounds(center - 100, 194, 96, 20).build());
+            .bounds(center - 100, top + step * 5, 96, 20).build());
         addRenderableWidget(Button.builder(Component.literal("Cancel"), button -> onClose())
-            .bounds(center + 4, 194, 96, 20).build());
+            .bounds(center + 4, top + step * 5, 96, 20).build());
     }
+
+    private int fieldTop() { return height >= 240 ? 44 : Math.max(18, (height - 175) / 2); }
+    private int fieldStep() { return height >= 240 ? 30 : 25; }
 
     private void save() {
         String name = nameBox.getValue().trim();
@@ -93,11 +97,12 @@ public final class LocationEditScreen extends BaseServerScreen {
         super.extractRenderState(graphics, mouseX, mouseY, delta);
         centered(graphics, locationId == null ? "Add Manual Location" : "Edit Location", 18, 0xFFFFFFFF);
         int left = width / 2 - 100;
-        graphics.text(font, "Name", left, 32, 0xFFCCCCCC, true);
-        graphics.text(font, "X", left, 62, 0xFFCCCCCC, true);
-        graphics.text(font, "Y", left, 92, 0xFFCCCCCC, true);
-        graphics.text(font, "Z", left, 122, 0xFFCCCCCC, true);
-        graphics.text(font, "Dimension", left, 152, 0xFFCCCCCC, true);
-        if (!error.isEmpty()) centered(graphics, error, 218, 0xFFFF6666);
+        int top = fieldTop(), step = fieldStep();
+        graphics.text(font, "Name", left, top - 12, 0xFFCCCCCC, true);
+        graphics.text(font, "X", left, top + step - 12, 0xFFCCCCCC, true);
+        graphics.text(font, "Y", left, top + step * 2 - 12, 0xFFCCCCCC, true);
+        graphics.text(font, "Z", left, top + step * 3 - 12, 0xFFCCCCCC, true);
+        graphics.text(font, "Dimension", left, top + step * 4 - 12, 0xFFCCCCCC, true);
+        if (!error.isEmpty()) centered(graphics, error, top + step * 5 + 24, 0xFFFF6666);
     }
 }

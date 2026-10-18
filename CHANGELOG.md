@@ -1,3 +1,11 @@
+# 1.2.1
+
+- Added an on-demand BreakBlocks browser to the Multiplayer screen with page navigation, filters, details and Add controls.
+- Saved explicitly chosen browser entries to Servers without auto-adding a whole page or marking them as scanner discoveries.
+- Reused the configured API key and shared BreakBlocks request allowance; browsing alone does not contribute or run live verification.
+- Kept Browse BreakBlocks on the main Multiplayer screen, away from the category lists.
+- Published separate Minecraft 26.2 and 26.3 Fabric JARs under the same release.
+
 # 1.1.9
 
 - Ordered Finder versions newest-first: Any, 26.3, 26.2, 26.1, then older releases.

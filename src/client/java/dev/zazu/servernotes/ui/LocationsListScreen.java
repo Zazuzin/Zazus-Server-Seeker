@@ -22,10 +22,11 @@ public final class LocationsListScreen extends BaseServerScreen {
     protected void init() {
         int center = width / 2;
         List<ServerLocation> locations = profile().locations();
-        int maxPage = Math.max(0, (locations.size() - 1) / PAGE_SIZE);
+        int pageSize = rowsPerPage();
+        int maxPage = Math.max(0, (locations.size() - 1) / pageSize);
         if (page > maxPage) page = maxPage;
-        int start = page * PAGE_SIZE;
-        int end = Math.min(locations.size(), start + PAGE_SIZE);
+        int start = page * pageSize;
+        int end = Math.min(locations.size(), start + pageSize);
 
         for (int i = start; i < end; i++) {
             ServerLocation location = locations.get(i);
@@ -49,7 +50,7 @@ public final class LocationsListScreen extends BaseServerScreen {
             if (page > 0) minecraft.gui.setScreen(new LocationsListScreen(parent, profileKey).withPage(page - 1));
         }).bounds(center - 100, height - 52, 96, 20).build());
         addRenderableWidget(Button.builder(Component.literal("Next >"), button -> {
-            if ((page + 1) * PAGE_SIZE < profile().locations().size()) {
+            if ((page + 1) * rowsPerPage() < profile().locations().size()) {
                 minecraft.gui.setScreen(new LocationsListScreen(parent, profileKey).withPage(page + 1));
             }
         }).bounds(center + 4, height - 52, 96, 20).build());
@@ -60,6 +61,10 @@ public final class LocationsListScreen extends BaseServerScreen {
     private LocationsListScreen withPage(int value) {
         this.page = value;
         return this;
+    }
+
+    private int rowsPerPage() {
+        return Math.max(1, Math.min(PAGE_SIZE, (height - 156) / 42 + 1));
     }
 
     private void addCurrent() {
@@ -79,8 +84,8 @@ public final class LocationsListScreen extends BaseServerScreen {
             return;
         }
         int left = width / 2 - 160;
-        int start = page * PAGE_SIZE;
-        int end = Math.min(locations.size(), start + PAGE_SIZE);
+        int start = page * rowsPerPage();
+        int end = Math.min(locations.size(), start + rowsPerPage());
         for (int i = start; i < end; i++) {
             ServerLocation location = locations.get(i);
             int row = i - start;
@@ -88,6 +93,6 @@ public final class LocationsListScreen extends BaseServerScreen {
             graphics.text(font, trim(location.name(), 26) + "  [" + trim(location.dimension(), 20) + "]", left, y, 0xFFFFFFFF, true);
             graphics.text(font, String.format("X %.1f  Y %.1f  Z %.1f  • %s", location.x(), location.y(), location.z(), TimeUtil.display(location.createdAt())), left, y + 12, 0xFF999999, true);
         }
-        centered(graphics, "Page " + (page + 1) + " / " + (Math.max(0, (locations.size() - 1) / PAGE_SIZE) + 1), 34, 0xFF999999);
+        centered(graphics, "Page " + (page + 1) + " / " + (Math.max(0, (locations.size() - 1) / rowsPerPage()) + 1), 34, 0xFF999999);
     }
 }

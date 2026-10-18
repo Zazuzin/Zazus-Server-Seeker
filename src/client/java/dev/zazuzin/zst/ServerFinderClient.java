@@ -65,8 +65,19 @@ public final class ServerFinderClient {
     }
 
     static void openOverlay(Object client, Object screen, int width, int height) throws Exception {
+        openOverlay(client, screen, width, height, false);
+    }
+
+    static void openBrowserOverlay(Object client, Object screen, int width, int height) throws Exception {
+        openOverlay(client, screen, width, height, true);
+    }
+
+    private static void openOverlay(Object client, Object screen, int width, int height, boolean browse) throws Exception {
         OverlayState old = STATES.get(screen);
-        if (old != null && old.open) return;
+        if (old != null && old.open) {
+            if (browse && !old.browserOpen) openBrowser(old);
+            return;
+        }
 
         OverlayState state = new OverlayState(client, screen, width, height);
         state.versionIndex = versionIndexForFilter(ToolState.versionFilter, ToolState.versionIndex);
@@ -77,7 +88,7 @@ public final class ServerFinderClient {
         state.sortIndex = clampIndex(ToolState.sortIndex, SORT_LABELS.length, 0);
         state.serverTypeIndex = clampIndex(ToolState.serverTypeIndex, SERVER_TYPE_LABELS.length, 0);
         state.sourceIndex = clampIndex(ToolState.finderSourceIndex, SOURCE_LABELS.length, 0);
-        state.autoAdd = ToolState.autoAddDefault && !ToolState.quickSearch;
+        state.autoAdd = !browse && ToolState.autoAddDefault && !ToolState.quickSearch;
         state.open = true;
         STATES.put(screen, state);
 
@@ -89,7 +100,8 @@ public final class ServerFinderClient {
             Reflection.setBoolean(widget, "active", false);
         }
         buildOverlay(state);
-        if (state.autoAdd) {
+        if (browse) openBrowser(state);
+        else if (state.autoAdd) {
             state.autoAddedThisSession = 0;
             scheduleNextAutoAddBatch(state, 0L, false, "Auto-add starting…");
         }
@@ -98,67 +110,83 @@ public final class ServerFinderClient {
     private static void buildOverlay(OverlayState s) throws Exception {
         int cx = s.width / 2;
         int y = 30;
-        s.findButton = trackedButton(s, "Find New Servers", cx - 208, y, 128,
+        int topWidth = Math.min(416, s.width - 12), topX = (s.width - topWidth) / 2;
+        int findWidth = topWidth * 128 / 416, autoWidth = topWidth * 92 / 416;
+        int resetWidth = autoWidth, closeWidth = topWidth - findWidth - autoWidth - resetWidth - 12;
+        s.findButton = trackedButton(s, "Find New Servers", topX, y, findWidth,
                 "Search the selected provider for another batch of servers.", b -> findNewServers(s));
-        s.autoButton = trackedButton(s, autoLabel(s), cx - 76, y, 92,
+        s.autoButton = trackedButton(s, autoLabel(s), topX + findWidth + 4, y, autoWidth,
                 "Automatically save servers that pass Verified Search. Options: ON or OFF.", b -> toggleAuto(s));
-        s.resetButton = trackedButton(s, "Reset Search", cx + 20, y, 92,
+        s.resetButton = trackedButton(s, "Reset Search", topX + findWidth + autoWidth + 8, y, resetWidth,
                 "Clear the current results and begin again with the selected filters.", b -> resetSearchState(s, "Search reset."));
-        s.closeButton = trackedButton(s, "Close Finder", cx + 116, y, 92,
+        s.closeButton = trackedButton(s, "Close Finder", topX + findWidth + autoWidth + resetWidth + 12, y, closeWidth,
                 "Close Server Finder and return to the multiplayer screen.", b -> closeOverlay(s));
 
         y += 24;
         final int filterMenuY = y + 21;
-        s.versionButton = trackedButton(s, versionLabel(s), cx - 190, y, 100,
+        int filterWidth = Math.min(380, s.width - 12), filterX = (s.width - filterWidth) / 2;
+        int versionWidth = filterWidth * 100 / 380, minWidth = filterWidth * 88 / 380;
+        int maxWidth = minWidth, typeWidth = filterWidth - versionWidth - minWidth - maxWidth - 12;
+        s.versionButton = trackedButton(s, versionLabel(s), filterX, y, versionWidth,
                 "Minecraft version filter. Click to choose a supported version or Any.",
-                b -> openMainOptionMenu(s, cx - 190, filterMenuY, 100, versionOptionLabels(), s.versionIndex,
+                b -> openMainOptionMenu(s, filterX, filterMenuY, versionWidth, versionOptionLabels(), s.versionIndex,
                         selected -> selectVersion(s, selected)));
-        s.minButton = trackedButton(s, minLabel(s), cx - 86, y, 88,
+        s.minButton = trackedButton(s, minLabel(s), filterX + versionWidth + 4, y, minWidth,
                 "Minimum number of players currently online. Click to choose a limit.",
-                b -> openMainOptionMenu(s, cx - 86, filterMenuY, 88, integerLabels(MIN_PLAYER_OPTIONS, false), s.minIndex,
+                b -> openMainOptionMenu(s, filterX + versionWidth + 4, filterMenuY, minWidth, integerLabels(MIN_PLAYER_OPTIONS, false), s.minIndex,
                         selected -> selectMin(s, selected)));
-        s.maxButton = trackedButton(s, maxLabel(s), cx + 6, y, 88,
+        s.maxButton = trackedButton(s, maxLabel(s), filterX + versionWidth + minWidth + 8, y, maxWidth,
                 "Maximum number of players currently online. Click to choose a limit or Any.",
-                b -> openMainOptionMenu(s, cx + 6, filterMenuY, 88, integerLabels(MAX_PLAYER_OPTIONS, true), s.maxIndex,
+                b -> openMainOptionMenu(s, filterX + versionWidth + minWidth + 8, filterMenuY, maxWidth, integerLabels(MAX_PLAYER_OPTIONS, true), s.maxIndex,
                         selected -> selectMax(s, selected)));
-        s.serverTypeButton = trackedButton(s, serverTypeLabel(s), cx + 98, y, 92,
+        s.serverTypeButton = trackedButton(s, serverTypeLabel(s), filterX + versionWidth + minWidth + maxWidth + 12, y, typeWidth,
                 "Server login type. Click to choose Any, Premium or Cracked.",
-                b -> openMainOptionMenu(s, cx + 98, filterMenuY, 92, List.of(SERVER_TYPE_LABELS), s.serverTypeIndex,
+                b -> openMainOptionMenu(s, filterX + versionWidth + minWidth + maxWidth + 12, filterMenuY, typeWidth, List.of(SERVER_TYPE_LABELS), s.serverTypeIndex,
                         selected -> selectServerType(s, selected)));
 
         y += 24;
         final int sortMenuY = y + 21;
-        s.sortButton = trackedButton(s, sortLabel(s), cx - 194, y, 128,
+        int sortWidth = Math.min(388, s.width - 12), sortX = (s.width - sortWidth) / 2;
+        int columnWidth = (sortWidth - 12) / 4, lastWidth = sortWidth - 12 - 3 * columnWidth;
+        s.sortButton = trackedButton(s, sortLabel(s), sortX, y, columnWidth,
                 "Result order. Click to choose how discovered servers are sorted.",
-                b -> openMainOptionMenu(s, cx - 194, sortMenuY, 128, List.of(SORT_LABELS), s.sortIndex,
+                b -> openMainOptionMenu(s, sortX, sortMenuY, columnWidth, List.of(SORT_LABELS), s.sortIndex,
                         selected -> selectSort(s, selected)));
-        s.blockedButton = trackedButton(s, blockedLabel(), cx - 62, y, 128,
+        s.blockedButton = trackedButton(s, blockedLabel(), sortX + columnWidth + 4, y, columnWidth,
                 "View, unblock or clear servers excluded from future searches.", b -> showBlockedList(s));
-        s.settingsButton = trackedButton(s, "Settings", cx + 70, y, 124,
+        s.browserButton = trackedButton(s, "Browse BB", sortX + 2 * (columnWidth + 4), y, columnWidth,
+                "Browse BreakBlocks pages and choose individual servers to save.", b -> openBrowser(s));
+        s.settingsButton = trackedButton(s, "Settings", sortX + 3 * (columnWidth + 4), y, lastWidth,
                 "Open Finder preferences, statistics and contribution controls.", b -> showSettings(s));
 
         y += 26;
+        int contentWidth = Math.min(452, s.width - 12), x = (s.width - contentWidth) / 2;
         s.statusButton = addTracked(s, Reflection.makeButton(
                 "Ready — " + ToolState.addedHistoryCount() + " servers added before can be skipped automatically.",
-                cx - 226, y, 452, 20, b -> {}));
+                x, y, contentWidth, 20, b -> {}));
         Reflection.setBoolean(s.statusButton, "active", false);
 
         int rowY = y + 25;
-        for (int i = 0; i < DISPLAY_RESULTS; i++) {
+        int resultWidth = contentWidth - 122;
+        for (int i = 0; i < finderRowsPerPage(s); i++) {
             final int index = i;
-            Object row = addTracked(s, Reflection.makeButton("", cx - 226, rowY + i * 23, 330, 20, b -> toggleVisibleResult(s, index)));
-            Object add = addTracked(s, Reflection.makeButton("Add", cx + 108, rowY + i * 23, 54, 20, b -> addVisibleResult(s, index)));
-            Object detail = addTracked(s, Reflection.makeButton("Details", cx + 166, rowY + i * 23, 60, 20, b -> showVisibleDetails(s, index)));
+            Object row = addTracked(s, Reflection.makeButton("", x, rowY + i * 23, resultWidth, 20, b -> toggleVisibleResult(s, index)));
+            Object add = addTracked(s, Reflection.makeButton("Add", x + contentWidth - 118, rowY + i * 23, 54, 20, b -> addVisibleResult(s, index)));
+            Object detail = addTracked(s, Reflection.makeButton("Details", x + contentWidth - 60, rowY + i * 23, 60, 20, b -> showVisibleDetails(s, index)));
             s.resultButtons.add(row);
             s.resultAddButtons.add(add);
             s.resultDetailButtons.add(detail);
         }
-        int navY = rowY + DISPLAY_RESULTS * 23 + 2;
-        s.previousResultsButton = addTracked(s, Reflection.makeButton("< Previous", cx - 150, navY, 90, 20, b -> changeResultPage(s, -1)));
-        s.resultPageButton = addTracked(s, Reflection.makeButton("Page 1/1", cx - 56, navY, 112, 20, b -> {}));
+        int navY = rowY + finderRowsPerPage(s) * 23 + 2;
+        s.previousResultsButton = addTracked(s, Reflection.makeButton("< Previous", x, navY, 90, 20, b -> changeResultPage(s, -1)));
+        s.resultPageButton = addTracked(s, Reflection.makeButton("Page 1/1", x + 94, navY, contentWidth - 188, 20, b -> {}));
         Reflection.setBoolean(s.resultPageButton, "active", false);
-        s.nextResultsButton = addTracked(s, Reflection.makeButton("Next >", cx + 60, navY, 90, 20, b -> changeResultPage(s, 1)));
+        s.nextResultsButton = addTracked(s, Reflection.makeButton("Next >", x + contentWidth - 90, navY, 90, 20, b -> changeResultPage(s, 1)));
         refreshRows(s);
+    }
+
+    static int finderRowsPerPage(OverlayState s) {
+        return Math.max(1, Math.min(DISPLAY_RESULTS, (s.height - 159) / 23));
     }
 
     private static Object addTracked(OverlayState s, Object widget) throws Exception {
@@ -199,6 +227,11 @@ public final class ServerFinderClient {
 
     private static void openOptionMenu(OverlayState s, Collection<Object> ownerWidgets, int x, int y, int width,
                                        List<String> labels, int selectedIndex, IntConsumer selected) {
+        openOptionMenuPage(s, ownerWidgets, x, y, width, labels, selectedIndex, selected, 0);
+    }
+
+    private static void openOptionMenuPage(OverlayState s, Collection<Object> ownerWidgets, int x, int y, int width,
+                                           List<String> labels, int selectedIndex, IntConsumer selected, int page) {
         try {
             clearOptionMenu(s);
             for (Object widget : ownerWidgets) {
@@ -206,8 +239,14 @@ public final class ServerFinderClient {
                 s.optionMenuOwnerStates.put(widget, Reflection.readBoolean(widget, "active", true));
                 Reflection.setBoolean(widget, "active", false);
             }
-            int optionY = y;
-            for (int i = 0; i < labels.size(); i++) {
+            int simpleCapacity = Math.max(1, (s.height - 10) / 21 - 1);
+            boolean paged = labels.size() > simpleCapacity;
+            int pageSize = paged ? Math.max(1, simpleCapacity - 1) : labels.size();
+            int pages = Math.max(1, (labels.size() + pageSize - 1) / pageSize);
+            int currentPage = Math.max(0, Math.min(page, pages - 1));
+            int start = currentPage * pageSize, end = Math.min(labels.size(), start + pageSize);
+            int optionY = Math.min(y, Math.max(5, s.height - 5 - (end - start + (paged ? 2 : 1)) * 21));
+            for (int i = start; i < end; i++) {
                 final int index = i;
                 String label = (i == selectedIndex ? "✓ " : "") + labels.get(i);
                 Object option = Reflection.makeButton(label, x, optionY, width, 20, b -> {
@@ -216,6 +255,20 @@ public final class ServerFinderClient {
                 });
                 Reflection.addWidget(s.screen, option);
                 s.optionMenuWidgets.add(option);
+                optionY += 21;
+            }
+            if (paged) {
+                int half = (width - 4) / 2;
+                Object previous = Reflection.makeButton("< Prev", x, optionY, half, 20,
+                        b -> openOptionMenuPage(s, ownerWidgets, x, y, width, labels, selectedIndex, selected, currentPage - 1));
+                Object next = Reflection.makeButton("Next >", x + half + 4, optionY, width - half - 4, 20,
+                        b -> openOptionMenuPage(s, ownerWidgets, x, y, width, labels, selectedIndex, selected, currentPage + 1));
+                Reflection.setBoolean(previous, "active", currentPage > 0);
+                Reflection.setBoolean(next, "active", currentPage + 1 < pages);
+                Reflection.addWidget(s.screen, previous);
+                Reflection.addWidget(s.screen, next);
+                s.optionMenuWidgets.add(previous);
+                s.optionMenuWidgets.add(next);
                 optionY += 21;
             }
             Object cancel = Reflection.makeButton("Cancel", x, optionY, width, 20, b -> clearOptionMenu(s));
@@ -245,6 +298,8 @@ public final class ServerFinderClient {
     private static void closeOverlay(OverlayState s) {
         if (!s.open) return;
         s.open = false;
+        s.browserOpen = false;
+        s.browserRequestToken++;
         s.autoAdd = false;
         s.autoAddScheduleToken++;
         clearOptionMenu(s);
@@ -367,9 +422,7 @@ public final class ServerFinderClient {
     }
 
     static void findNewServers(OverlayState s) {
-        ToolState.reloadBreakBlocksApiKey();
-        BreakBlocksAccount.configure(ToolState.breakBlocksApiKey());
-        if (!ToolState.hasBreakBlocksApiKey()) s.apiKeyDisabledForSession = false;
+        refreshConfiguredApiKey(s);
         if (!s.open || s.loading) {
             if (s.loading) setStatus(s, "Wait for the current provider request to finish.");
             return;
@@ -498,16 +551,23 @@ public final class ServerFinderClient {
     }
 
     static URI buildBreakBlocksPageUri(OverlayState s, int page) {
-        int age = normalizedBreakBlocksAgeDays(ToolState.breakBlocksMaxAgeDays);
+        return buildBrowserPageUri(s.versionIndex, s.minIndex, s.maxIndex, s.sortIndex,
+                s.serverTypeIndex, ToolState.breakBlocksMaxAgeDays, page);
+    }
+
+    static URI buildBrowserPageUri(int versionIndex, int minIndex, int maxIndex, int sortIndex,
+                                   int serverTypeIndex, int maxAgeDays, int page) {
+        int age = normalizedBreakBlocksAgeDays(maxAgeDays);
         StringBuilder url = new StringBuilder(BREAKBLOCKS_API_URL)
-                .append("?version=").append(enc(VERSION_OPTIONS[s.versionIndex]))
-                .append("&minUsers=").append(MIN_PLAYER_OPTIONS[s.minIndex])
-                .append("&maxUsers=").append(MAX_PLAYER_OPTIONS[s.maxIndex])
+                .append("?version=").append(enc(VERSION_OPTIONS[clampIndex(versionIndex, VERSION_OPTIONS.length, 0)]))
+                .append("&minUsers=").append(MIN_PLAYER_OPTIONS[clampIndex(minIndex, MIN_PLAYER_OPTIONS.length, 0)])
+                .append("&maxUsers=").append(MAX_PLAYER_OPTIONS[clampIndex(maxIndex, MAX_PLAYER_OPTIONS.length, MAX_PLAYER_OPTIONS.length - 1)])
                 .append("&page=").append(Math.max(1, page))
                 .append("&limit=").append(API_LIMIT)
                 .append("&maxAge=").append(age);
-        if (s.serverTypeIndex == 2) url.append("&offlineOnly=on");
-        if (!SORT_API_VALUES[s.sortIndex].isBlank()) url.append("&sort=").append(enc(SORT_API_VALUES[s.sortIndex]));
+        if (serverTypeIndex == 2) url.append("&offlineOnly=on");
+        String sort = SORT_API_VALUES[clampIndex(sortIndex, SORT_API_VALUES.length, 0)];
+        if (!sort.isBlank()) url.append("&sort=").append(enc(sort));
         return URI.create(url.toString());
     }
 
@@ -536,19 +596,37 @@ public final class ServerFinderClient {
     }
 
     private static void sendBreakBlocksPage(OverlayState s, int page, URI uri, boolean allowAuthentication) {
-        String apiKey = allowAuthentication && !s.apiKeyDisabledForSession ? ToolState.breakBlocksApiKey() : "";
+        String configuredKey = refreshConfiguredApiKey(s);
+        String apiKey = allowAuthentication && !s.apiKeyDisabledForSession ? configuredKey : "";
         boolean authenticated = !apiKey.isBlank();
         HttpRequest request = buildBreakBlocksRequest(uri, apiKey);
         BreakBlocksRateBudget.recordSearchRequest(authenticated);
         HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                 .whenComplete((response, error) -> Reflection.execute(s.client,
-                        () -> handleBreakBlocksPage(s, page, uri, authenticated, response, error)));
+                        () -> handleBreakBlocksPage(s, page, uri, apiKey, response, error)));
     }
 
     static HttpRequest buildBreakBlocksRequest(URI uri, String apiKey) {
         HttpRequest.Builder builder = baseRequest(uri);
         if (apiKey != null && !apiKey.isBlank()) builder.header("Authorization", "Bearer " + apiKey.trim());
         return builder.GET().build();
+    }
+
+    private static String refreshConfiguredApiKey(OverlayState s) {
+        ToolState.reloadBreakBlocksApiKey();
+        String key = ToolState.breakBlocksApiKey();
+        if (!Objects.equals(s.lastConfiguredApiKey, key)) {
+            s.lastConfiguredApiKey = key;
+            s.apiKeyDisabledForSession = false;
+            s.apiKeyDisabledReason = "";
+            s.apiKeyCheckedThisSession = false;
+            s.apiKeyAcceptedThisSession = false;
+            s.apiKeyResponseWithoutAuthStatus = false;
+            s.breakBlocksPaidTier = false;
+            s.browserPaidTier = false;
+            BreakBlocksAccount.configure(key);
+        }
+        return key;
     }
 
     static HttpRequest buildProviderRequest(URI uri) {
@@ -569,9 +647,14 @@ public final class ServerFinderClient {
                         () -> handleSimpleProviderResponse(s, provider, response, error)));
     }
 
-    private static void handleBreakBlocksPage(OverlayState s, int page, URI uri, boolean authenticated,
+    private static void handleBreakBlocksPage(OverlayState s, int page, URI uri, String apiKey,
                                                HttpResponse<String> response, Throwable error) {
         if (!s.open) { s.loading = false; return; }
+        if (!Objects.equals(apiKey, refreshConfiguredApiKey(s)) && !apiKey.isBlank()) {
+            sendBreakBlocksPage(s, page, uri, true);
+            return;
+        }
+        boolean authenticated = !apiKey.isBlank();
         if (error != null) { providerFailure(s, Provider.BREAKBLOCKS, rootMessage(error)); return; }
         if (response == null) { providerFailure(s, Provider.BREAKBLOCKS, "No response"); return; }
 
@@ -580,9 +663,11 @@ public final class ServerFinderClient {
         int status = response.statusCode();
         if (authenticated && (status == 401 || status == 403)) {
             s.apiKeyDisabledForSession = true;
+            s.apiKeyDisabledReason = status == 401 ? "Key rejected (401)" : "Access forbidden (403)";
             s.apiKeyCheckedThisSession = true;
+            s.apiKeyResponseWithoutAuthStatus = false;
             BreakBlocksAccount.rejected();
-            setStatus(s, "BreakBlocks API key rejected; retrying anonymously…");
+            setStatus(s, "BreakBlocks " + s.apiKeyDisabledReason + "; retrying anonymously…");
             sendBreakBlocksPage(s, page, uri, false);
             return;
         }
@@ -595,12 +680,12 @@ public final class ServerFinderClient {
         if (status / 100 != 2) { providerFailure(s, Provider.BREAKBLOCKS, "HTTP " + status); return; }
         try {
             SearchResult parsed = parseSearchResult(response.body());
-            BreakBlocksAccount.observe(parsed.authed(), parsed.patreonTier());
-            s.apiKeyCheckedThisSession = authenticated;
-            s.apiKeyAcceptedThisSession = authenticated && parsed.authed();
+            if (authenticated && parsed.authStatusPresent()) BreakBlocksAccount.observe(parsed.authed(), parsed.patreonTier());
+            s.apiKeyCheckedThisSession = authenticated && parsed.authStatusPresent();
+            s.apiKeyAcceptedThisSession = authenticated && parsed.authStatusPresent() && parsed.authed();
+            s.apiKeyResponseWithoutAuthStatus = authenticated && !parsed.authStatusPresent();
             s.breakBlocksPatreonTier = parsed.patreonTier();
-            s.breakBlocksPaidTier = authenticated
-                    && BreakBlocksAccount.isPaidTier(parsed.authed(), parsed.patreonTier());
+            s.breakBlocksPaidTier = authenticated && BreakBlocksAccount.snapshot().paid();
             int matchingPages = pageCountForResults(parsed.filtered(), API_LIMIT);
             int publicLimit = s.serverTypeIndex == 2 ? 2 : MAX_PUBLIC_PAGES;
             s.breakBlocksAvailablePages = s.breakBlocksPaidTier
@@ -1014,16 +1099,17 @@ public final class ServerFinderClient {
     }
 
     private static void refreshRows(OverlayState s) {
-        int start = s.resultPage * DISPLAY_RESULTS;
-        for (int i = 0; i < DISPLAY_RESULTS; i++) {
+        int rows = finderRowsPerPage(s);
+        int start = s.resultPage * rows;
+        for (int i = 0; i < rows; i++) {
             int resultIndex = start + i;
             boolean has = resultIndex < s.results.size();
             Object row = s.resultButtons.size() > i ? s.resultButtons.get(i) : null;
             Object add = s.resultAddButtons.size() > i ? s.resultAddButtons.get(i) : null;
             Object detail = s.resultDetailButtons.size() > i ? s.resultDetailButtons.get(i) : null;
-            Reflection.setBoolean(row, "visible", has); Reflection.setBoolean(row, "active", has);
-            Reflection.setBoolean(add, "visible", has); Reflection.setBoolean(add, "active", has);
-            Reflection.setBoolean(detail, "visible", has); Reflection.setBoolean(detail, "active", has);
+            Reflection.setBoolean(row, "visible", has && s.mainVisible); Reflection.setBoolean(row, "active", has && s.mainVisible);
+            Reflection.setBoolean(add, "visible", has && s.mainVisible); Reflection.setBoolean(add, "active", has && s.mainVisible);
+            Reflection.setBoolean(detail, "visible", has && s.mainVisible); Reflection.setBoolean(detail, "active", has && s.mainVisible);
             if (has) {
                 ServerRecord r = s.results.get(resultIndex);
                 String verification = r.source().endsWith(" (unverified)") ? "UNVERIFIED" : "VERIFIED";
@@ -1037,19 +1123,20 @@ public final class ServerFinderClient {
         }
         int pages = resultPageCount(s);
         Reflection.setButtonText(s.resultPageButton, "Page " + (s.resultPage + 1) + "/" + pages);
-        Reflection.setBoolean(s.previousResultsButton, "visible", !s.results.isEmpty());
-        Reflection.setBoolean(s.nextResultsButton, "visible", !s.results.isEmpty());
-        Reflection.setBoolean(s.resultPageButton, "visible", !s.results.isEmpty());
+        Reflection.setBoolean(s.previousResultsButton, "visible", s.mainVisible && !s.results.isEmpty());
+        Reflection.setBoolean(s.nextResultsButton, "visible", s.mainVisible && !s.results.isEmpty());
+        Reflection.setBoolean(s.resultPageButton, "visible", s.mainVisible && !s.results.isEmpty());
         Reflection.setBoolean(s.previousResultsButton, "active", s.resultPage > 0);
         Reflection.setBoolean(s.nextResultsButton, "active", s.resultPage + 1 < pages);
     }
 
     private static int resultPageCount(OverlayState s) {
-        return Math.max(1, (s.results.size() + DISPLAY_RESULTS - 1) / DISPLAY_RESULTS);
+        int rows = finderRowsPerPage(s);
+        return Math.max(1, (s.results.size() + rows - 1) / rows);
     }
 
     private static int visibleResultIndex(OverlayState s, int row) {
-        return s.resultPage * DISPLAY_RESULTS + row;
+        return s.resultPage * finderRowsPerPage(s) + row;
     }
 
     private static void changeResultPage(OverlayState s, int direction) {
@@ -1063,7 +1150,7 @@ public final class ServerFinderClient {
 
     private static void addVisibleResult(OverlayState s, int row) { addResult(s, visibleResultIndex(s, row)); }
     private static void toggleVisibleResult(OverlayState s, int row) { toggleResult(s, visibleResultIndex(s, row)); }
-    private static void showVisibleDetails(OverlayState s, int row) { showDetails(s, visibleResultIndex(s, row)); }
+    private static void showVisibleDetails(OverlayState s, int row) { s.finderDetailsPage = 0; showDetails(s, visibleResultIndex(s, row)); }
 
     private static void addResult(OverlayState s, int index) {
         if (index < 0 || index >= s.results.size()) return;
@@ -1077,14 +1164,375 @@ public final class ServerFinderClient {
         } catch (Throwable t) { setStatus(s, "Server-list change failed: " + rootMessage(t)); }
     }
 
-    private static void toggleResult(OverlayState s, int index) { if (index >= 0 && index < s.results.size()) showDetails(s, index); }
+    private static void toggleResult(OverlayState s, int index) {
+        if (index >= 0 && index < s.results.size()) { s.finderDetailsPage = 0; showDetails(s, index); }
+    }
 
-    private static void hideMain(OverlayState s) { clearOptionMenu(s); for (Object w : s.widgets) Reflection.setBoolean(w, "visible", false); }
-    private static void showMain(OverlayState s) { for (Object w : s.widgets) Reflection.setBoolean(w, "visible", true); refreshRows(s); }
+    private static void hideMain(OverlayState s) {
+        s.mainVisible = false;
+        clearOptionMenu(s);
+        for (Object w : s.widgets) Reflection.setBoolean(w, "visible", false);
+    }
+    private static void showMain(OverlayState s) {
+        s.mainVisible = true;
+        s.apiKeyTestOpen = false;
+        for (Object w : s.widgets) Reflection.setBoolean(w, "visible", true);
+        refreshRows(s);
+    }
     private static void clearSubView(OverlayState s) {
         clearOptionMenu(s);
         try { Reflection.widgets(s.screen).removeAll(s.subWidgets); } catch (Throwable ignored) {}
         s.subWidgets.clear();
+    }
+
+    private static void openBrowser(OverlayState s) {
+        s.autoAdd = false;
+        s.autoAddScheduleToken++;
+        Reflection.setButtonText(s.autoButton, autoLabel(s));
+        s.browserVersionIndex = s.versionIndex;
+        s.browserMinIndex = s.minIndex;
+        s.browserMaxIndex = s.maxIndex;
+        s.browserSortIndex = s.sortIndex;
+        s.browserTypeIndex = s.serverTypeIndex;
+        s.browserAgeDays = normalizedBreakBlocksAgeDays(ToolState.breakBlocksMaxAgeDays);
+        s.browserPage = 1;
+        s.browserRowPage = 0;
+        s.browserResults = List.of();
+        s.browserOpen = true;
+        requestBrowserPage(s, 1, true);
+    }
+
+    private static void closeBrowser(OverlayState s) {
+        s.browserOpen = false;
+        s.browserLoading = false;
+        s.browserRequestToken++;
+        clearSubView(s);
+        showMain(s);
+    }
+
+    private static void browserFilterChanged(OverlayState s) {
+        s.browserRequestToken++;
+        s.browserLoading = false;
+        s.browserResults = List.of();
+        s.browserRowPage = 0;
+        s.browserAvailablePages = 1;
+        s.browserPaidTier = false;
+        requestBrowserPage(s, 1, true);
+    }
+
+    private static void requestBrowserPage(OverlayState s, int page, boolean clearResults) {
+        if (!s.open || !s.browserOpen) return;
+        if (s.browserMinIndex < 0 || s.browserMaxIndex < 0
+                || MIN_PLAYER_OPTIONS[s.browserMinIndex] > MAX_PLAYER_OPTIONS[s.browserMaxIndex]) {
+            s.browserLoading = false;
+            s.browserStatus = "Minimum players cannot be above maximum players.";
+            showBrowser(s);
+            return;
+        }
+        if (s.browserLoading) {
+            // A changed filter supersedes its previous request. The old response
+            // is discarded by browserRequestToken when it eventually arrives.
+            s.browserRequestToken++;
+        }
+        String configuredKey = refreshConfiguredApiKey(s);
+        String key = s.apiKeyDisabledForSession ? "" : configuredKey;
+        boolean authenticated = !key.isBlank();
+        BreakBlocksRateBudget.Snapshot allowance = BreakBlocksRateBudget.snapshot(authenticated);
+        if (allowance.paused() || (!allowance.unlimited() && allowance.remaining() <= 0)) {
+            s.browserLoading = false;
+            s.browserStatus = "BreakBlocks allowance reached; retry in " + allowance.resetSeconds() + "s.";
+            showBrowser(s);
+            return;
+        }
+        s.browserPage = Math.max(1, page);
+        s.browserRowPage = 0;
+        if (clearResults) s.browserResults = List.of();
+        s.browserLoading = true;
+        s.browserStatus = "Loading BreakBlocks page " + s.browserPage + "...";
+        long token = ++s.browserRequestToken;
+        showBrowser(s);
+        URI uri = buildBrowserPageUri(s.browserVersionIndex, s.browserMinIndex, s.browserMaxIndex,
+                s.browserSortIndex, s.browserTypeIndex, s.browserAgeDays, s.browserPage);
+        sendBrowserRequest(s, uri, authenticated ? key : "", token);
+    }
+
+    private static void sendBrowserRequest(OverlayState s, URI uri, String apiKey, long token) {
+        boolean authenticated = apiKey != null && !apiKey.isBlank();
+        BreakBlocksRateBudget.recordSearchRequest(authenticated);
+        HTTP.sendAsync(buildBreakBlocksRequest(uri, apiKey), HttpResponse.BodyHandlers.ofString())
+                .whenComplete((response, error) -> Reflection.execute(s.client,
+                        () -> handleBrowserResponse(s, uri, apiKey, token, response, error)));
+    }
+
+    private static void handleBrowserResponse(OverlayState s, URI uri, String apiKey, long token,
+                                              HttpResponse<String> response, Throwable error) {
+        if (!s.open || !s.browserOpen || token != s.browserRequestToken) return;
+        if (!Objects.equals(apiKey, refreshConfiguredApiKey(s)) && !apiKey.isBlank()) {
+            requestBrowserPage(s, s.browserPage, false);
+            return;
+        }
+        boolean authenticated = !apiKey.isBlank();
+        if (error != null || response == null) {
+            browserFailure(s, "BreakBlocks request failed: " + (error == null ? "no response" : rootMessage(error)));
+            return;
+        }
+        BreakBlocksRateBudget.observe(response, authenticated);
+        int status = response.statusCode();
+        if (authenticated && (status == 401 || status == 403)) {
+            s.apiKeyDisabledForSession = true;
+            s.apiKeyDisabledReason = status == 401 ? "Key rejected (401)" : "Access forbidden (403)";
+            s.apiKeyResponseWithoutAuthStatus = false;
+            BreakBlocksAccount.rejected();
+            BreakBlocksRateBudget.Snapshot allowance = BreakBlocksRateBudget.snapshot(false);
+            if (allowance.paused() || allowance.remaining() <= 0) {
+                browserFailure(s, s.apiKeyDisabledReason + "; anonymous allowance unavailable. Retry later.");
+            } else {
+                if (s.browserPage > (s.browserTypeIndex == 2 ? 2 : MAX_PUBLIC_PAGES)) {
+                    s.browserPage = 1;
+                    uri = buildBrowserPageUri(s.browserVersionIndex, s.browserMinIndex, s.browserMaxIndex,
+                            s.browserSortIndex, s.browserTypeIndex, s.browserAgeDays, 1);
+                }
+                s.browserStatus = s.apiKeyDisabledReason + "; retrying anonymously...";
+                showBrowser(s);
+                sendBrowserRequest(s, uri, "", token);
+            }
+            return;
+        }
+        if (status == 429) {
+            BreakBlocksRateBudget.noteRateLimit(response);
+            browserFailure(s, "BreakBlocks rate limit reached. Retry when the allowance resets.");
+            return;
+        }
+        if (status / 100 != 2) {
+            browserFailure(s, "BreakBlocks returned HTTP " + status + ".");
+            return;
+        }
+        try {
+            SearchResult parsed = parseSearchResult(response.body());
+            if (authenticated && parsed.authStatusPresent()) BreakBlocksAccount.observe(parsed.authed(), parsed.patreonTier());
+            s.apiKeyCheckedThisSession = authenticated && parsed.authStatusPresent();
+            s.apiKeyAcceptedThisSession = authenticated && parsed.authStatusPresent() && parsed.authed();
+            s.apiKeyResponseWithoutAuthStatus = authenticated && !parsed.authStatusPresent();
+            s.browserPaidTier = authenticated && BreakBlocksAccount.snapshot().paid();
+            s.browserFiltered = parsed.filtered();
+            s.browserAvailablePages = browserPageLimit(parsed.filtered(), s.browserPaidTier, s.browserTypeIndex == 2);
+            List<ServerRecord> visible = new ArrayList<>();
+            int hiddenWhitelisted = 0;
+            for (ServerRecord record : parsed.servers()) {
+                if (record.whitelisted()) { hiddenWhitelisted++; continue; }
+                if (s.browserTypeIndex == 1 && record.offlineMode()) continue;
+                if (s.browserTypeIndex == 2 && !record.offlineMode()) continue;
+                visible.add(record);
+            }
+            s.browserHiddenWhitelisted = hiddenWhitelisted;
+            s.browserResults = List.copyOf(visible);
+            s.browserLoading = false;
+            s.browserStatus = "BreakBlocks page " + s.browserPage + "/" + s.browserAvailablePages
+                    + " | " + parsed.filtered() + " matching | " + visible.size() + " shown"
+                    + (s.browserHiddenWhitelisted > 0 ? " | " + s.browserHiddenWhitelisted + " whitelisted hidden" : "");
+            showBrowser(s);
+        } catch (Throwable t) {
+            browserFailure(s, "Could not read BreakBlocks response: " + rootMessage(t));
+        }
+    }
+
+    private static void browserFailure(OverlayState s, String message) {
+        s.browserLoading = false;
+        s.browserStatus = message;
+        showBrowser(s);
+    }
+
+    static int browserPageLimit(int filtered, boolean paid, boolean crackedOnly) {
+        int matchingPages = pageCountForResults(filtered, API_LIMIT);
+        return paid ? matchingPages : Math.min(crackedOnly ? 2 : MAX_PUBLIC_PAGES, matchingPages);
+    }
+
+    private static void browsePrevious(OverlayState s) {
+        if (s.browserLoading) return;
+        if (s.browserRowPage > 0) { s.browserRowPage--; showBrowser(s); }
+        else if (s.browserPage > 1) requestBrowserPage(s, s.browserPage - 1, true);
+    }
+
+    private static void browseNext(OverlayState s) {
+        if (s.browserLoading) return;
+        if ((s.browserRowPage + 1) * browserRowsPerPage(s) < s.browserResults.size()) {
+            s.browserRowPage++;
+            showBrowser(s);
+        } else if (s.browserPage < s.browserAvailablePages) requestBrowserPage(s, s.browserPage + 1, true);
+    }
+
+    static int browserRowsPerPage(OverlayState s) {
+        return Math.max(1, Math.min(DISPLAY_RESULTS, (s.height - 149) / 23));
+    }
+
+    private static void showBrowser(OverlayState s) {
+        if (!s.open || !s.browserOpen) return;
+        try {
+            clearSubView(s); hideMain(s);
+            int contentWidth = Math.min(452, Math.max(260, s.width - 12));
+            int x = (s.width - contentWidth) / 2, y = 30;
+            int versionWidth = Math.max(76, contentWidth * 108 / 452);
+            int minWidth = Math.max(56, contentWidth * 84 / 452);
+            int maxWidth = minWidth;
+            int typeWidth = contentWidth - versionWidth - minWidth - maxWidth - 12;
+            addSubLabel(s, "Browse BreakBlocks", x, y, contentWidth - 120);
+            subButton(s, "Back to Finder", x + contentWidth - 118, y, 118,
+                    "Return to the scanner. Auto-add remains off until you turn it back on.", b -> closeBrowser(s));
+            y += 24;
+            final int firstMenuY = y + 21;
+            subButton(s, "Version: " + (VERSION_OPTIONS[s.browserVersionIndex].equals("*") ? "Any" : VERSION_OPTIONS[s.browserVersionIndex]),
+                    x, y, versionWidth, "Choose a version to browse.", b -> openSubOptionMenu(s, x, firstMenuY, versionWidth,
+                            versionOptionLabels(), s.browserVersionIndex, selected -> {
+                                s.browserVersionIndex = selected; browserFilterChanged(s);
+                            }));
+            subButton(s, "Min: " + MIN_PLAYER_OPTIONS[s.browserMinIndex], x + versionWidth + 4, y, minWidth,
+                    "Minimum player count.", b -> openSubOptionMenu(s, x + versionWidth + 4, firstMenuY, minWidth,
+                            integerLabels(MIN_PLAYER_OPTIONS, false), s.browserMinIndex, selected -> {
+                                s.browserMinIndex = selected; browserFilterChanged(s);
+                            }));
+            subButton(s, "Max: " + (MAX_PLAYER_OPTIONS[s.browserMaxIndex] >= 999999 ? "Any" : MAX_PLAYER_OPTIONS[s.browserMaxIndex]),
+                    x + versionWidth + minWidth + 8, y, maxWidth, "Maximum player count.", b -> openSubOptionMenu(s, x + versionWidth + minWidth + 8, firstMenuY, maxWidth,
+                            integerLabels(MAX_PLAYER_OPTIONS, true), s.browserMaxIndex, selected -> {
+                                s.browserMaxIndex = selected; browserFilterChanged(s);
+                            }));
+            subButton(s, "Type: " + SERVER_TYPE_LABELS[s.browserTypeIndex], x + versionWidth + minWidth + maxWidth + 12, y, typeWidth,
+                    "Show any, premium or cracked servers.", b -> openSubOptionMenu(s, x + versionWidth + minWidth + maxWidth + 12, firstMenuY, typeWidth,
+                            List.of(SERVER_TYPE_LABELS), s.browserTypeIndex, selected -> {
+                                s.browserTypeIndex = selected; browserFilterChanged(s);
+                            }));
+            y += 24;
+            final int secondMenuY = y + 21;
+            int sortWidth = contentWidth / 3 - 4, seenWidth = sortWidth;
+            int reloadWidth = contentWidth - sortWidth - seenWidth - 8;
+            subButton(s, "Sort: " + SORT_LABELS[s.browserSortIndex], x, y, sortWidth,
+                    "Order the API results.", b -> openSubOptionMenu(s, x, secondMenuY, sortWidth,
+                            List.of(SORT_LABELS), s.browserSortIndex, selected -> {
+                                s.browserSortIndex = selected; browserFilterChanged(s);
+                            }));
+            subButton(s, "Seen: " + s.browserAgeDays + " days", x + sortWidth + 4, y, seenWidth,
+                    "Only show records seen within this many days.", b -> openSubOptionMenu(s, x + sortWidth + 4, secondMenuY, seenWidth,
+                            breakBlocksAgeLabels(), browserAgeIndex(s), selected -> {
+                                s.browserAgeDays = BREAKBLOCKS_AGE_OPTIONS[selected]; browserFilterChanged(s);
+                            }));
+            subButton(s, "Reload", x + sortWidth + seenWidth + 8, y, reloadWidth,
+                    "Reload the current BreakBlocks page.", b -> requestBrowserPage(s, s.browserPage, true));
+            y += 24;
+            addSubLabel(s, shorten(s.browserStatus, contentWidth / 6), x, y, contentWidth);
+            y += 25;
+            int rows = browserRowsPerPage(s);
+            Set<String> saved = new HashSet<>();
+            try {
+                for (Object entry : ServerListBridge.servers(ServerListBridge.createLoadedList(s.client))) {
+                    saved.add(normalizeEndpoint(ServerListBridge.serverEndpoint(entry)));
+                }
+            } catch (Throwable t) { log("Could not check saved browser entries", t); }
+            for (int i = 0; i < rows; i++) {
+                int index = s.browserRowPage * rows + i;
+                if (index >= s.browserResults.size()) break;
+                ServerRecord record = s.browserResults.get(index);
+                String label = record.endpoint() + " | " + record.version() + " | "
+                        + record.playersOnline() + "/" + record.playersMax() + " | " + record.motd();
+                int resultWidth = contentWidth - 122;
+                subButton(s, shorten(label, Math.max(20, resultWidth / 6)), x, y, resultWidth,
+                        "BreakBlocks listing. Open details for the full MOTD and location.", b -> {
+                            s.browserDetailsPage = 0; showBrowserDetails(s, record);
+                        });
+                boolean alreadySaved = saved.contains(normalizeEndpoint(record.endpoint()));
+                boolean blocked = ToolState.isBlocked(record.endpoint());
+                Object add = subButton(s, blocked ? "Blocked" : alreadySaved ? "Saved" : "Add", x + contentWidth - 118, y, 54,
+                        "Save this server to your Servers tab.", b -> addBrowserResult(s, record));
+                Reflection.setBoolean(add, "active", !alreadySaved && !blocked);
+                subButton(s, "Details", x + contentWidth - 60, y, 60,
+                        "Show full server details.", b -> {
+                            s.browserDetailsPage = 0; showBrowserDetails(s, record);
+                        });
+                y += 23;
+            }
+            int navY = 127 + rows * 23 + 2;
+            Object previous = subButton(s, "< Previous", x, navY, 90,
+                    "Previous results or previous BreakBlocks page.", b -> browsePrevious(s));
+            Object next = subButton(s, "Next >", x + contentWidth - 90, navY, 90,
+                    "Next results or next BreakBlocks page.", b -> browseNext(s));
+            Reflection.setBoolean(previous, "active", !s.browserLoading && (s.browserPage > 1 || s.browserRowPage > 0));
+            Reflection.setBoolean(next, "active", !s.browserLoading
+                    && ((s.browserRowPage + 1) * rows < s.browserResults.size()
+                    || s.browserPage < s.browserAvailablePages));
+            addSubLabel(s, "Page " + s.browserPage + "/" + s.browserAvailablePages
+                    + "  (" + (s.browserResults.isEmpty() ? 0 : s.browserRowPage + 1) + "/"
+                    + Math.max(1, (s.browserResults.size() + rows - 1) / rows) + ")",
+                    x + 96, navY, contentWidth - 192);
+        } catch (Throwable t) {
+            log("Could not draw BreakBlocks browser", t);
+            closeBrowser(s);
+        }
+    }
+
+    private static int browserAgeIndex(OverlayState s) {
+        for (int i = 0; i < BREAKBLOCKS_AGE_OPTIONS.length; i++) {
+            if (BREAKBLOCKS_AGE_OPTIONS[i] == s.browserAgeDays) return i;
+        }
+        return BREAKBLOCKS_AGE_OPTIONS.length - 1;
+    }
+
+    private static void addBrowserResult(OverlayState s, ServerRecord record) {
+        try {
+            boolean added = ServerListBridge.addBrowsed(s.client, record);
+            s.browserStatus = added ? "Added " + record.endpoint() + " to Servers."
+                    : ServerListBridge.contains(s.client, record.endpoint()) ? "Server is already saved."
+                    : "Server is blocked or could not be added.";
+        } catch (Throwable t) {
+            s.browserStatus = "Could not add server: " + rootMessage(t);
+        }
+        showBrowser(s);
+    }
+
+    private static void showBrowserDetails(OverlayState s, ServerRecord record) {
+        if (!s.browserOpen) return;
+        try {
+            clearSubView(s); hideMain(s);
+            int contentWidth = Math.min(440, s.width - 12);
+            int x = (s.width - contentWidth) / 2, y = 32;
+            addSubLabel(s, shorten("BreakBlocks — " + record.endpoint(), contentWidth / 6), x, y, contentWidth); y += 24;
+            boolean saved = ServerListBridge.contains(s.client, record.endpoint());
+            boolean blocked = ToolState.isBlocked(record.endpoint());
+            int actionWidth = Math.min(170, (contentWidth - 10) / 2);
+            int backWidth = Math.min(155, (contentWidth - 10) / 2);
+            Object add = subButton(s, saved ? "Saved" : blocked ? "Blocked" : "Add to Servers", x, y, actionWidth,
+                    "Save this server to the Servers tab.", b -> {
+                        addBrowserResult(s, record);
+                        showBrowserDetails(s, record);
+                    });
+            Reflection.setBoolean(add, "active", !saved && !blocked);
+            subButton(s, "Back to Browser", x + contentWidth - backWidth, y, backWidth,
+                    "Return to BreakBlocks results.", b -> showBrowser(s));
+            y += 28;
+            String location = joinNonBlank(", ", record.city(), record.region(), record.countryCode(), record.country());
+            List<String> info = List.of(
+                    "Version: " + record.version() + "   Players: " + record.playersOnline() + "/" + record.playersMax(),
+                    "MOTD: " + record.motd(),
+                    "Location: " + (location.isBlank() ? "Unknown" : location),
+                    "Last ping: " + blankDefault(record.lastPing(), "Unknown"),
+                    "Modpack: " + blankDefault(record.modpack(), "None detected"),
+                    "Plugins: " + (record.plugins().isEmpty() ? "None reported" : String.join(", ", record.plugins())),
+                    "BreakBlocks listing — live availability has not been verified.");
+            int rows = detailRowsPerPage(s), pages = (info.size() + rows - 1) / rows;
+            s.browserDetailsPage = Math.max(0, Math.min(s.browserDetailsPage, pages - 1));
+            for (int i = s.browserDetailsPage * rows; i < Math.min(info.size(), (s.browserDetailsPage + 1) * rows); i++) {
+                addSubLabel(s, shorten(info.get(i), contentWidth / 6), x, y, contentWidth);
+                y += 24;
+            }
+            int navY = s.height - 28;
+            Object previous = subButton(s, "< Previous", x, navY, 100,
+                    "Previous details page.", b -> { s.browserDetailsPage--; showBrowserDetails(s, record); });
+            addSubLabel(s, "Page " + (s.browserDetailsPage + 1) + "/" + pages, x + 105, navY, contentWidth - 210);
+            Object next = subButton(s, "Next >", x + contentWidth - 100, navY, 100,
+                    "Next details page.", b -> { s.browserDetailsPage++; showBrowserDetails(s, record); });
+            Reflection.setBoolean(previous, "active", s.browserDetailsPage > 0);
+            Reflection.setBoolean(next, "active", s.browserDetailsPage + 1 < pages);
+        } catch (Throwable t) {
+            log("Could not show BreakBlocks details", t);
+            showBrowser(s);
+        }
     }
 
     private static void showDetails(OverlayState s, int index) {
@@ -1092,38 +1540,61 @@ public final class ServerFinderClient {
         ServerRecord r = s.results.get(index);
         try {
             clearSubView(s); hideMain(s);
-            int cx = s.width / 2, x = cx - 220, y = 32;
-            addSubLabel(s, "Server Details — " + r.endpoint(), x, y, 440); y += 24;
-            addSubLabel(s, "Version: " + r.version() + "   Players: " + r.playersOnline() + "/" + r.playersMax(), x, y, 440); y += 24;
-            addSubLabel(s, "Source: " + r.source(), x, y, 440); y += 24;
-            addSubLabel(s, "MOTD: " + shorten(r.motd(), 66), x, y, 440); y += 24;
-            String location = joinNonBlank(", ", r.city(), r.region(), r.countryCode(), r.country());
-            addSubLabel(s, "Location: " + (location.isBlank() ? "Unknown" : location), x, y, 440); y += 24;
-            addSubLabel(s, "Last ping: " + blankDefault(r.lastPing(), "Unknown"), x, y, 440); y += 24;
-            addSubLabel(s, "Modpack: " + blankDefault(r.modpack(), "None detected"), x, y, 440); y += 24;
-            addSubLabel(s, "Plugins: " + (r.plugins().isEmpty() ? "None reported" : shorten(String.join(", ", r.plugins()), 62)), x, y, 440); y += 24;
-            String authLabel = ToolState.authDetectionEnabled ? ServerAuthService.displayLabel(r.endpoint()) : "Disabled";
-            String checked = ToolState.authDetectionEnabled ? ServerAuthService.checkedLabel(r.endpoint()) : "N/A";
-            addSubLabel(s, "Authentication: " + authLabel + "   Checked: " + checked, x, y, 440); y += 24;
-            addSubLabel(s, "Provider offline-mode: " + (r.offlineMode() ? "Yes" : "No")
-                    + "   Blocked: " + (ToolState.isBlocked(r.endpoint()) ? "Yes" : "No"), x, y, 440); y += 28;
-
+            int contentWidth = Math.min(440, s.width - 12), x = (s.width - contentWidth) / 2, y = 32;
+            addSubLabel(s, "Server Details — " + r.endpoint(), x, y, contentWidth); y += 24;
+            int firstWidth = contentWidth * 130 / 440, secondWidth = contentWidth * 105 / 440;
+            int thirdWidth = contentWidth * 95 / 440, fourthWidth = contentWidth - firstWidth - secondWidth - thirdWidth - 15;
             boolean saved;
             try { saved = ServerListBridge.contains(s.client, r.endpoint()); } catch (Throwable t) { saved = false; }
-            if (saved) addSub(s, Reflection.makeButton("Remove Saved", x, y, 130, 20, b -> removeFromDetails(s, r)));
-            else addSub(s, Reflection.makeButton("Add Server", x, y, 130, 20, b -> addFromDetails(s, r)));
-            if (ToolState.isBlocked(r.endpoint())) addSub(s, Reflection.makeButton("Unblock", x + 135, y, 105, 20, b -> { ToolState.unblock(r.endpoint()); showDetails(s, index); }));
-            else addSub(s, Reflection.makeButton("Block", x + 135, y, 105, 20, b -> { ToolState.block(r.endpoint()); showDetails(s, index); }));
-            Object authButton = addSub(s, Reflection.makeButton(ServerAuthService.isChecking(r.endpoint()) ? "Checking…" : "Recheck Auth",
-                    x + 245, y, 95, 20, b -> {
+            if (saved) subButton(s, "Remove Saved", x, y, firstWidth, "Remove this server from your list.", b -> removeFromDetails(s, r));
+            else subButton(s, "Add Server", x, y, firstWidth, "Add this server to your list.", b -> addFromDetails(s, r));
+            if (ToolState.isBlocked(r.endpoint())) subButton(s, "Unblock", x + firstWidth + 5, y, secondWidth,
+                    "Allow this server in future searches.", b -> { ToolState.unblock(r.endpoint()); showDetails(s, index); });
+            else subButton(s, "Block", x + firstWidth + 5, y, secondWidth,
+                    "Exclude this server from future searches.", b -> { ToolState.block(r.endpoint()); showDetails(s, index); });
+            Object authButton = subButton(s, ServerAuthService.isChecking(r.endpoint()) ? "Checking…" : "Recheck Auth",
+                    x + firstWidth + secondWidth + 10, y, thirdWidth, "Recheck server authentication.", b -> {
                         if (ServerAuthService.recheckAsync(s.client, r.endpoint(), r.protocol(), () -> showDetails(s, index))) showDetails(s, index);
-                    }));
+                    });
             Reflection.setBoolean(authButton, "active", ToolState.authDetectionEnabled && !ServerAuthService.isChecking(r.endpoint()));
-            addSub(s, Reflection.makeButton("Back", x + 345, y, 95, 20, b -> { clearSubView(s); showMain(s); }));
+            subButton(s, "Back", x + contentWidth - fourthWidth, y, fourthWidth,
+                    "Return to Finder results.", b -> { clearSubView(s); showMain(s); });
+            y += 28;
+            String location = joinNonBlank(", ", r.city(), r.region(), r.countryCode(), r.country());
+            String authLabel = ToolState.authDetectionEnabled ? ServerAuthService.displayLabel(r.endpoint()) : "Disabled";
+            String checked = ToolState.authDetectionEnabled ? ServerAuthService.checkedLabel(r.endpoint()) : "N/A";
+            List<String> info = List.of(
+                    "Version: " + r.version() + "   Players: " + r.playersOnline() + "/" + r.playersMax(),
+                    "Source: " + r.source(), "MOTD: " + r.motd(),
+                    "Location: " + (location.isBlank() ? "Unknown" : location),
+                    "Last ping: " + blankDefault(r.lastPing(), "Unknown"),
+                    "Modpack: " + blankDefault(r.modpack(), "None detected"),
+                    "Plugins: " + (r.plugins().isEmpty() ? "None reported" : String.join(", ", r.plugins())),
+                    "Authentication: " + authLabel + "   Checked: " + checked,
+                    "Provider offline-mode: " + (r.offlineMode() ? "Yes" : "No")
+                            + "   Blocked: " + (ToolState.isBlocked(r.endpoint()) ? "Yes" : "No"));
+            int rows = detailRowsPerPage(s), pages = (info.size() + rows - 1) / rows;
+            s.finderDetailsPage = Math.max(0, Math.min(s.finderDetailsPage, pages - 1));
+            for (int i = s.finderDetailsPage * rows; i < Math.min(info.size(), (s.finderDetailsPage + 1) * rows); i++) {
+                addSubLabel(s, shorten(info.get(i), contentWidth / 6), x, y, contentWidth);
+                y += 24;
+            }
+            int navY = s.height - 28;
+            Object previous = subButton(s, "< Previous", x, navY, 100,
+                    "Previous details page.", b -> { s.finderDetailsPage--; showDetails(s, index); });
+            addSubLabel(s, "Page " + (s.finderDetailsPage + 1) + "/" + pages, x + 105, navY, contentWidth - 210);
+            Object next = subButton(s, "Next >", x + contentWidth - 100, navY, 100,
+                    "Next details page.", b -> { s.finderDetailsPage++; showDetails(s, index); });
+            Reflection.setBoolean(previous, "active", s.finderDetailsPage > 0);
+            Reflection.setBoolean(next, "active", s.finderDetailsPage + 1 < pages);
         } catch (Throwable t) {
             log("Could not show server details", t);
             clearSubView(s); showMain(s);
         }
+    }
+
+    static int detailRowsPerPage(OverlayState s) {
+        return Math.max(1, (s.height - 124) / 24);
     }
 
     private static void addFromDetails(OverlayState s, ServerRecord r) {
@@ -1137,102 +1608,228 @@ public final class ServerFinderClient {
 
     private static void showSettings(OverlayState s) {
         try {
+            s.apiKeyTestOpen = false;
             clearSubView(s); hideMain(s);
-            int cx = s.width / 2, x = cx - 210, y = 35;
-            addSubLabel(s, "Zazu's Server Seeker Settings", x, y, 420); y += 24;
-            addSubLabel(s, "Build: " + ReleaseInfo.VERSION + "   Minecraft: " + ReleaseInfo.MINECRAFT_VERSION, x, y, 420); y += 24;
-            subButton(s, "Skip Added Before: " + onOff(ToolState.skipAddedHistory), x, y, 200,
-                    "Skip addresses that Server Seeker has previously added to your server list.", b -> { ToolState.skipAddedHistory = !ToolState.skipAddedHistory; ToolState.save(); showSettings(s); });
-            subButton(s, "Block Deleted: " + onOff(ToolState.blockDeleted), x + 210, y, 200,
-                    "Automatically block a scanned server when you delete it, preventing rediscovery.", b -> { ToolState.blockDeleted = !ToolState.blockDeleted; ToolState.save(); showSettings(s); }); y += 24;
-            subButton(s, "Favourites First: " + onOff(ToolState.favouritesFirst), x, y, 200,
-                    "Place favourite servers before other servers in managed lists.", b -> { ToolState.favouritesFirst = !ToolState.favouritesFirst; ToolState.save(); showSettings(s); });
-            subButton(s, "Auto-add Default: " + onOff(ToolState.autoAddDefault), x + 210, y, 200,
-                    "Choose whether Verified Search starts with Auto-add enabled.", b -> { ToolState.autoAddDefault = !ToolState.autoAddDefault; ToolState.save(); showSettings(s); }); y += 24;
-            final int firstChoiceMenuY = y + 21;
-            subButton(s, "Auto-add Limit: " + autoAddLimitLabel(), x, y, 200,
-                    "Maximum servers Auto-add may save in one run. Click to choose a limit.",
-                    b -> openSubOptionMenu(s, x, firstChoiceMenuY, 200, autoAddLimitLabels(), autoAddLimitIndex(),
-                            selected -> { selectAutoAddLimit(selected); showSettings(s); }));
-            subButton(s, "Finder Source: " + sourceLabel(s), x + 210, y, 200,
-                    "Discovery provider. Click to choose Auto, All Sources, BreakBlocks, Cornbread or MineScan.",
-                    b -> openSubOptionMenu(s, x + 210, firstChoiceMenuY, 200, List.of(SOURCE_LABELS), s.sourceIndex,
-                            selected -> { selectSource(s, selected); showSettings(s); })); y += 24;
-            final int ageMenuY = y + 21;
-            subButton(s, "BreakBlocks Age: " + breakBlocksAgeLabel(), x, y, 200,
-                    "Only request BreakBlocks records seen within this many days. Click to choose an age.",
-                    b -> openSubOptionMenu(s, x, ageMenuY, 200, breakBlocksAgeLabels(), breakBlocksAgeIndex(),
-                            selected -> { selectBreakBlocksAge(s, selected); showSettings(s); }));
-            subButton(s, "Clear Added History (" + ToolState.addedHistoryCount() + ")", x + 210, y, 200,
-                    "Forget which servers were added before so they may appear in searches again.", b -> { ToolState.clearAddedHistory(); showSettings(s); }); y += 28;
-            subButton(s, "Server Seeker Stats", x, y, 200,
-                    "View clearly labelled added-history, added, deleted, favourite and blocked totals.", b -> showSeekerStats(s));
-            subButton(s, "Automatic Cleanup: " + onOff(ToolState.automaticCleanupEnabled), x + 210, y, 200,
-                    "Configure conservative cleanup and restore recently removed Finder servers.", b -> showCleanupSettings(s)); y += 28;
-            subButton(s, "Search Mode: " + (ToolState.quickSearch ? "Quick" : "Verified"), x, y, 200,
-                    "Quick shows provider results immediately. Verified performs two direct server checks.", b -> { toggleSearchMode(s); showSettings(s); });
-            subButton(s, "Auth Detection: " + onOff(ToolState.authDetectionEnabled), x + 210, y, 200,
-                    "Classify servers asynchronously as Microsoft, Cracked or Unknown without delaying normal scan results.", b -> {
-                ToolState.authDetectionEnabled = !ToolState.authDetectionEnabled;
-                ToolState.save();
-                if (ToolState.authDetectionEnabled) scheduleAuthChecks(s, s.results);
-                showSettings(s);
-            }); y += 28;
-            addSubLabel(s, "Auth Recheck: " + ServerAuthService.RECHECK_DAYS + " days", x, y, 200); y += 24;
-            subButton(s, "Contribute Servers: " + onOff(ToolState.contributeVerifiedServers), x, y, 200,
-                    "Send public double-verified discoveries and stable successful joins to BreakBlocks. Private/LAN servers are saved locally only.", b -> {
-                ToolState.contributeVerifiedServers = !ToolState.contributeVerifiedServers;
-                ToolState.save();
-                BreakBlocksContributor.onSettingChanged();
-                showSettings(s);
-            });
-            subButton(s, "Contribution Stats", x + 210, y, 200,
-                    "View the BreakBlocks queue, allowance, outcomes, failures and contribution log tools.", b -> showContributionStats(s)); y += 24;
-            ToolState.reloadBreakBlocksApiKey();
-            addSubLabel(s, breakBlocksApiStatusLabel(s), x, y, 410); y += 24;
-            addSubLabel(s, "Contribution log: config/zazus-server-seeker/breakblocks-contributions.csv", x, y, 410); y += 24;
-            addSubLabel(s, "Config key: breakBlocksApiKey=...", x, y, 260);
-            subButton(s, "Back", x + 310, y, 100,
+            int contentWidth = Math.min(420, s.width - 12), x = (s.width - contentWidth) / 2;
+            int leftWidth = (contentWidth - 10) / 2, rightX = x + leftWidth + 10;
+            int rightWidth = contentWidth - leftWidth - 10, y = 35;
+            addSubLabel(s, "Zazu's Server Seeker Settings", x, y, contentWidth - 110);
+            subButton(s, "Back", x + contentWidth - 100, y, 100,
                     "Return to the Server Finder results.", b -> { clearSubView(s); showMain(s); refreshStats(s); }); y += 24;
-            addSubLabel(s, "config/zazus-server-seeker/server-tool.properties", x, y, 410);
+            addSubLabel(s, "Build: " + ReleaseInfo.VERSION + "   Minecraft: " + ReleaseInfo.MINECRAFT_VERSION, x, y, leftWidth);
+            subButton(s, "Test API Key", rightX, y, rightWidth,
+                    "Check BreakBlocks using your configured key. The key stays hidden.", b -> {
+                        startApiKeyTest(s); showApiKeyTest(s);
+                    }); y += 24;
+            refreshConfiguredApiKey(s);
+            addSubLabel(s, shorten(breakBlocksApiStatusLabel(s), contentWidth / 6), x, y, contentWidth);
+            y += 24;
+
+            int rowsPerPage = settingsRowsPerPage(s), pages = (11 + rowsPerPage - 1) / rowsPerPage;
+            s.settingsPage = Math.max(0, Math.min(s.settingsPage, pages - 1));
+            for (int slot = 0; slot < rowsPerPage; slot++) {
+                int row = s.settingsPage * rowsPerPage + slot;
+                int rowY = y + slot * 28, menuY = rowY + 21;
+                switch (row) {
+                    case 0 -> {
+                        subButton(s, "Skip Added Before: " + onOff(ToolState.skipAddedHistory), x, rowY, leftWidth,
+                                "Skip addresses that Server Seeker has previously added to your server list.", b -> { ToolState.skipAddedHistory = !ToolState.skipAddedHistory; ToolState.save(); showSettings(s); });
+                        subButton(s, "Block Deleted: " + onOff(ToolState.blockDeleted), rightX, rowY, rightWidth,
+                                "Automatically block a scanned server when you delete it, preventing rediscovery.", b -> { ToolState.blockDeleted = !ToolState.blockDeleted; ToolState.save(); showSettings(s); });
+                    }
+                    case 1 -> {
+                        subButton(s, "Favourites First: " + onOff(ToolState.favouritesFirst), x, rowY, leftWidth,
+                                "Place favourite servers before other servers in managed lists.", b -> { ToolState.favouritesFirst = !ToolState.favouritesFirst; ToolState.save(); showSettings(s); });
+                        subButton(s, "Auto-add Default: " + onOff(ToolState.autoAddDefault), rightX, rowY, rightWidth,
+                                "Choose whether Verified Search starts with Auto-add enabled.", b -> { ToolState.autoAddDefault = !ToolState.autoAddDefault; ToolState.save(); showSettings(s); });
+                    }
+                    case 2 -> {
+                        subButton(s, "Auto-add Limit: " + autoAddLimitLabel(), x, rowY, leftWidth,
+                                "Maximum servers Auto-add may save in one run. Click to choose a limit.",
+                                b -> openSubOptionMenu(s, x, menuY, leftWidth, autoAddLimitLabels(), autoAddLimitIndex(),
+                                        selected -> { selectAutoAddLimit(selected); showSettings(s); }));
+                        subButton(s, "Finder Source: " + sourceLabel(s), rightX, rowY, rightWidth,
+                                "Choose Auto, All Sources, BreakBlocks, Cornbread or MineScan.",
+                                b -> openSubOptionMenu(s, rightX, menuY, rightWidth, List.of(SOURCE_LABELS), s.sourceIndex,
+                                        selected -> { selectSource(s, selected); showSettings(s); }));
+                    }
+                    case 3 -> {
+                        subButton(s, "BreakBlocks Age: " + breakBlocksAgeLabel(), x, rowY, leftWidth,
+                                "Only request BreakBlocks records seen within this many days.",
+                                b -> openSubOptionMenu(s, x, menuY, leftWidth, breakBlocksAgeLabels(), breakBlocksAgeIndex(),
+                                        selected -> { selectBreakBlocksAge(s, selected); showSettings(s); }));
+                        subButton(s, "Clear Added History (" + ToolState.addedHistoryCount() + ")", rightX, rowY, rightWidth,
+                                "Forget previously added servers so they may appear again.", b -> { ToolState.clearAddedHistory(); showSettings(s); });
+                    }
+                    case 4 -> {
+                        subButton(s, "Server Seeker Stats", x, rowY, leftWidth,
+                                "View added, deleted, favourite and blocked totals.", b -> showSeekerStats(s));
+                        subButton(s, "Automatic Cleanup: " + onOff(ToolState.automaticCleanupEnabled), rightX, rowY, rightWidth,
+                                "Configure cleanup and restore recently removed servers.", b -> showCleanupSettings(s));
+                    }
+                    case 5 -> {
+                        subButton(s, "Search Mode: " + (ToolState.quickSearch ? "Quick" : "Verified"), x, rowY, leftWidth,
+                                "Quick shows results immediately. Verified performs two checks.", b -> { toggleSearchMode(s); showSettings(s); });
+                        subButton(s, "Auth Detection: " + onOff(ToolState.authDetectionEnabled), rightX, rowY, rightWidth,
+                                "Classify servers asynchronously as Microsoft, Cracked or Unknown.", b -> {
+                            ToolState.authDetectionEnabled = !ToolState.authDetectionEnabled;
+                            ToolState.save();
+                            if (ToolState.authDetectionEnabled) scheduleAuthChecks(s, s.results);
+                            showSettings(s);
+                        });
+                    }
+                    case 6 -> addSubLabel(s, "Auth Recheck: " + ServerAuthService.RECHECK_DAYS + " days", x, rowY, contentWidth);
+                    case 7 -> {
+                        subButton(s, "Contribute Servers: " + onOff(ToolState.contributeVerifiedServers), x, rowY, leftWidth,
+                                "Send public double-verified discoveries and successful joins to BreakBlocks.", b -> {
+                            ToolState.contributeVerifiedServers = !ToolState.contributeVerifiedServers;
+                            ToolState.save(); BreakBlocksContributor.onSettingChanged(); showSettings(s);
+                        });
+                        subButton(s, "Contribution Stats", rightX, rowY, rightWidth,
+                                "View the BreakBlocks queue, allowance and log tools.", b -> showContributionStats(s));
+                    }
+                    case 8 -> addSubLabel(s, "Contribution log: config/zazus-server-seeker/breakblocks-contributions.csv", x, rowY, contentWidth);
+                    case 9 -> addSubLabel(s, "Config key: breakBlocksApiKey=...", x, rowY, contentWidth);
+                    case 10 -> addSubLabel(s, "config/zazus-server-seeker/server-tool.properties", x, rowY, contentWidth);
+                    default -> { }
+                }
+            }
+            int navY = Math.min(s.height - 28, y + rowsPerPage * 28 + 7);
+            Object previous = subButton(s, "< Previous", x, navY, Math.min(100, leftWidth),
+                    "Previous settings page.", b -> { s.settingsPage--; showSettings(s); });
+            addSubLabel(s, "Page " + (s.settingsPage + 1) + "/" + pages, x + 105, navY, contentWidth - 210);
+            Object next = subButton(s, "Next >", x + contentWidth - 100, navY, 100,
+                    "Next settings page.", b -> { s.settingsPage++; showSettings(s); });
+            Reflection.setBoolean(previous, "active", s.settingsPage > 0);
+            Reflection.setBoolean(next, "active", s.settingsPage + 1 < pages);
         } catch (Throwable t) { log("Could not open settings", t); clearSubView(s); showMain(s); }
+    }
+
+    static int settingsRowsPerPage(OverlayState s) {
+        return Math.max(1, Math.min(5, (s.height - 142) / 28));
+    }
+
+    private static void showApiKeyTest(OverlayState s) {
+        try {
+            s.apiKeyTestOpen = true;
+            clearSubView(s); hideMain(s);
+            int contentWidth = Math.min(420, s.width - 12), x = (s.width - contentWidth) / 2, y = 38;
+            int half = (contentWidth - 10) / 2;
+            addSubLabel(s, "BreakBlocks API Key Check", x, y, contentWidth); y += 28;
+            addSubLabel(s, shorten(breakBlocksApiStatusLabel(s), contentWidth / 6), x, y, contentWidth); y += 26;
+            addSubLabel(s, shorten(s.apiKeyTestStatus, contentWidth / 6), x, y, contentWidth); y += 26;
+            addSubLabel(s, "HTTP 200 alone cannot prove a key was accepted.", x, y, contentWidth); y += 24;
+            addSubLabel(s, "The discovery endpoint also works without a key.", x, y, contentWidth); y += 30;
+            subButton(s, "Retry Check", x, y, half,
+                    "Reload the key from the config and send one discovery request.", b -> {
+                        startApiKeyTest(s); showApiKeyTest(s);
+                    });
+            subButton(s, "Back", x + half + 10, y, contentWidth - half - 10,
+                    "Return to Server Seeker Settings.", b -> showSettings(s));
+        } catch (Throwable t) { log("Could not show API key check", t); showSettings(s); }
+    }
+
+    private static void startApiKeyTest(OverlayState s) {
+        String key = refreshConfiguredApiKey(s);
+        long token = ++s.apiKeyTestToken;
+        if (key.isBlank()) {
+            s.apiKeyTestStatus = "No key configured. Set breakBlocksApiKey in server-tool.properties.";
+            return;
+        }
+        BreakBlocksRateBudget.Snapshot quota = BreakBlocksRateBudget.snapshot(true);
+        if (quota.paused() || (!quota.unlimited() && quota.remaining() <= 0)) {
+            s.apiKeyTestStatus = "Allowance reached. Retry in " + quota.resetSeconds() + "s.";
+            return;
+        }
+        s.apiKeyTestStatus = "Checking BreakBlocks (one request)...";
+        BreakBlocksRateBudget.recordSearchRequest(true);
+        HTTP.sendAsync(buildBreakBlocksRequest(URI.create(BREAKBLOCKS_API_URL + "?limit=1&page=1"), key),
+                        HttpResponse.BodyHandlers.ofString())
+                .whenComplete((response, error) -> Reflection.execute(s.client, () -> {
+                    if (!s.open || token != s.apiKeyTestToken) return;
+                    // A response to the previous key must not mark a newly edited key as rejected.
+                    if (!Objects.equals(key, refreshConfiguredApiKey(s))) {
+                        s.apiKeyTestStatus = "Key changed during check. Press Retry Check.";
+                        if (s.apiKeyTestOpen) showApiKeyTest(s);
+                        return;
+                    }
+                    if (error != null || response == null) {
+                        s.apiKeyTestStatus = "Request failed: " + (error == null ? "no response" : rootMessage(error));
+                    } else {
+                        BreakBlocksRateBudget.observe(response, true);
+                        int status = response.statusCode();
+                        if (status == 401 || status == 403) {
+                            s.apiKeyDisabledForSession = true;
+                            s.apiKeyDisabledReason = status == 401 ? "Key rejected (401)" : "Access forbidden (403)";
+                            s.apiKeyCheckedThisSession = true;
+                            s.apiKeyResponseWithoutAuthStatus = false;
+                            BreakBlocksAccount.rejected();
+                            s.apiKeyTestStatus = "HTTP " + status + ": " + s.apiKeyDisabledReason + ".";
+                        } else if (status == 429) {
+                            BreakBlocksRateBudget.noteRateLimit(response);
+                            s.apiKeyTestStatus = "HTTP 429: rate limit reached; key was not checked.";
+                        } else if (status / 100 != 2) {
+                            s.apiKeyTestStatus = "HTTP " + status + ": key could not be checked.";
+                        } else {
+                            try {
+                                SearchResult parsed = parseSearchResult(response.body());
+                                s.apiKeyCheckedThisSession = parsed.authStatusPresent();
+                                s.apiKeyAcceptedThisSession = parsed.authStatusPresent() && parsed.authed();
+                                s.apiKeyResponseWithoutAuthStatus = !parsed.authStatusPresent();
+                                if (parsed.authStatusPresent()) BreakBlocksAccount.observe(parsed.authed(), parsed.patreonTier());
+                                if (parsed.authStatusPresent() && parsed.authed()) {
+                                    s.apiKeyDisabledForSession = false;
+                                    s.apiKeyDisabledReason = "";
+                                }
+                                s.apiKeyTestStatus = !parsed.authStatusPresent()
+                                        ? "HTTP " + status + ": no auth status; key acceptance unconfirmed."
+                                        : parsed.authed() ? "HTTP " + status + ": key authenticated."
+                                        : "HTTP " + status + ": API reports authed=false.";
+                            } catch (RuntimeException ex) {
+                                s.apiKeyTestStatus = "HTTP " + status + ": response could not be read.";
+                            }
+                        }
+                    }
+                    if (s.apiKeyTestOpen) showApiKeyTest(s);
+                }));
     }
 
     private static void showCleanupSettings(OverlayState s) {
         try {
             clearSubView(s); hideMain(s);
-            int cx = s.width / 2, x = cx - 210, y = 38;
-            addSubLabel(s, "Automatic Cleanup", x, y, 420); y += 28;
-            subButton(s, "Automatic Cleanup: " + onOff(ToolState.automaticCleanupEnabled), x, y, 410,
+            int contentWidth = Math.min(420, s.width - 12), x = (s.width - contentWidth) / 2, y = 38;
+            int half = (contentWidth - 10) / 2, rightX = x + half + 10;
+            addSubLabel(s, "Automatic Cleanup", x, y, contentWidth); y += 28;
+            subButton(s, "Automatic Cleanup: " + onOff(ToolState.automaticCleanupEnabled), x, y, contentWidth,
                     "Master switch. Favourites and manually added servers are always protected.", b -> {
                 ToolState.automaticCleanupEnabled = !ToolState.automaticCleanupEnabled;
                 ToolState.save(); showCleanupSettings(s);
             }); y += 26;
-            subButton(s, "Whitelist Rejections: " + onOff(ToolState.cleanupWhitelistEnabled), x, y, 200,
+            subButton(s, "Whitelist Rejections: " + onOff(ToolState.cleanupWhitelistEnabled), x, y, half,
                     "Remove Finder-owned servers after a confirmed whitelist rejection.", b -> {
                 ToolState.cleanupWhitelistEnabled = !ToolState.cleanupWhitelistEnabled;
                 ToolState.save(); showCleanupSettings(s);
             });
-            subButton(s, "Required Client Mods: " + onOff(ToolState.cleanupRequiredModsEnabled), x + 210, y, 200,
+            subButton(s, "Required Client Mods: " + onOff(ToolState.cleanupRequiredModsEnabled), rightX, y, contentWidth - half - 10,
                     "Remove Finder-owned servers that explicitly require missing client mods.", b -> {
                 ToolState.cleanupRequiredModsEnabled = !ToolState.cleanupRequiredModsEnabled;
                 ToolState.save(); showCleanupSettings(s);
             }); y += 26;
-            subButton(s, "Invalid Address / DNS: " + onOff(ToolState.cleanupInvalidAddressEnabled), x, y, 200,
+            subButton(s, "Invalid Address / DNS: " + onOff(ToolState.cleanupInvalidAddressEnabled), x, y, half,
                     "Remove after three eligible invalid-address or DNS failures.", b -> {
                 ToolState.cleanupInvalidAddressEnabled = !ToolState.cleanupInvalidAddressEnabled;
                 ToolState.save(); showCleanupSettings(s);
             });
-            subButton(s, "Unreachable (3 checks): " + onOff(ToolState.cleanupUnreachableEnabled), x + 210, y, 200,
+            subButton(s, "Unreachable (3 checks): " + onOff(ToolState.cleanupUnreachableEnabled), rightX, y, contentWidth - half - 10,
                     "Remove after three connection-refused or unreachable checks. Timeouts never count.", b -> {
                 ToolState.cleanupUnreachableEnabled = !ToolState.cleanupUnreachableEnabled;
                 ToolState.save(); showCleanupSettings(s);
             }); y += 32;
-            addSubLabel(s, "Protected: favourites, manual servers, timeouts and all client/version mismatches.", x, y, 420); y += 28;
+            addSubLabel(s, "Protected: favourites, manual servers, timeouts and all client/version mismatches.", x, y, contentWidth); y += 28;
             int removed = ServerCategoryStore.recentlyRemovedSnapshot().size();
-            subButton(s, "Recently Removed (" + removed + ")", x, y, 200,
+            subButton(s, "Recently Removed (" + removed + ")", x, y, half,
                     "Review removal reasons and restore individual servers.", b -> showRecentlyRemoved(s));
-            subButton(s, "Back", x + 310, y, 100,
+            subButton(s, "Back", x + contentWidth - 100, y, 100,
                     "Return to Server Seeker Settings.", b -> showSettings(s));
         } catch (Throwable t) { log("Could not open automatic-cleanup settings", t); showSettings(s); }
     }
@@ -1240,19 +1837,23 @@ public final class ServerFinderClient {
     private static void showRecentlyRemoved(OverlayState s) {
         try {
             clearSubView(s); hideMain(s);
-            int cx = s.width / 2, x = cx - 210, y = 34;
-            addSubLabel(s, "Recently Removed Finder Servers", x, y, 420); y += 26;
+            int contentWidth = Math.min(420, s.width - 12), x = (s.width - contentWidth) / 2, y = 34;
+            addSubLabel(s, "Recently Removed Finder Servers", x, y, contentWidth - 105);
+            subButton(s, "Back", x + contentWidth - 100, y, 100,
+                    "Return to Automatic Cleanup settings.", b -> showCleanupSettings(s)); y += 26;
             List<ServerCategoryStore.RecentlyRemoved> removed = ServerCategoryStore.recentlyRemovedSnapshot();
+            int pageSize = listRowsPerPage(s), pages = Math.max(1, (removed.size() + pageSize - 1) / pageSize);
+            s.recentlyRemovedPage = Math.max(0, Math.min(s.recentlyRemovedPage, pages - 1));
             if (removed.isEmpty()) {
-                addSubLabel(s, "No servers have been removed automatically.", x, y, 420); y += 28;
+                addSubLabel(s, "No servers have been removed automatically.", x, y, contentWidth);
             } else {
-                int visible = Math.min(8, removed.size());
-                for (int i = 0; i < visible; i++) {
+                int start = s.recentlyRemovedPage * pageSize;
+                for (int i = start; i < Math.min(removed.size(), start + pageSize); i++) {
                     ServerCategoryStore.RecentlyRemoved entry = removed.get(i);
                     String label = "Restore " + entry.endpoint() + " — " + entry.reason();
                     String tooltip = entry.reason() + " • " + removedAge(entry.atMillis())
                             + (entry.detail().isBlank() ? "" : " • " + entry.detail());
-                    subButton(s, label, x, y, 410, tooltip, b -> {
+                    subButton(s, label, x, y, contentWidth, tooltip, b -> {
                         if (ServerCategoryStore.restoreRecentlyRemoved(s.client, entry.endpoint())) {
                             MultiplayerManagementEntrypoint.refreshMultiplayerScreen(s.client, s.screen);
                         } else {
@@ -1261,17 +1862,24 @@ public final class ServerFinderClient {
                     });
                     y += 23;
                 }
-                if (removed.size() > visible) {
-                    addSubLabel(s, "+ " + (removed.size() - visible) + " older entries retained", x, y, 260); y += 24;
-                }
             }
-            subButton(s, "Clear History", x, y, 150,
+            int navY = s.height - 52;
+            Object previous = subButton(s, "< Previous", x, navY, 100,
+                    "Previous removed servers page.", b -> { s.recentlyRemovedPage--; showRecentlyRemoved(s); });
+            addSubLabel(s, "Page " + (s.recentlyRemovedPage + 1) + "/" + pages, x + 105, navY, contentWidth - 210);
+            Object next = subButton(s, "Next >", x + contentWidth - 100, navY, 100,
+                    "Next removed servers page.", b -> { s.recentlyRemovedPage++; showRecentlyRemoved(s); });
+            Reflection.setBoolean(previous, "active", s.recentlyRemovedPage > 0);
+            Reflection.setBoolean(next, "active", s.recentlyRemovedPage + 1 < pages);
+            subButton(s, "Clear History", x, s.height - 28, 150,
                     "Clear only the Recently Removed history; this does not alter servers.dat.", b -> {
-                ServerCategoryStore.clearRecentlyRemoved(); showRecentlyRemoved(s);
+                ServerCategoryStore.clearRecentlyRemoved(); s.recentlyRemovedPage = 0; showRecentlyRemoved(s);
             });
-            subButton(s, "Back", x + 310, y, 100,
-                    "Return to Automatic Cleanup settings.", b -> showCleanupSettings(s));
         } catch (Throwable t) { log("Could not show recently removed servers", t); showCleanupSettings(s); }
+    }
+
+    static int listRowsPerPage(OverlayState s) {
+        return Math.max(1, Math.min(8, (s.height - 118) / 23));
     }
 
     private static String removedAge(long atMillis) {
@@ -1287,17 +1895,18 @@ public final class ServerFinderClient {
     private static void showSeekerStats(OverlayState s) {
         try {
             clearSubView(s); hideMain(s);
-            int cx = s.width / 2, x = cx - 210, y = 38;
-            addSubLabel(s, "Server Seeker Stats", x, y, 420); y += 30;
-            addSubLabel(s, "Added history: " + ToolState.addedHistoryCount(), x, y, 420); y += 23;
-            addSubLabel(s, "Addresses remembered so previously added servers can be skipped.", x, y, 420); y += 26;
-            addSubLabel(s, "Servers added: " + ToolState.addedCount, x, y, 205);
-            addSubLabel(s, "Servers deleted: " + ToolState.deletedCount, x + 215, y, 205); y += 26;
-            addSubLabel(s, "Favourite servers: " + ServerListBridge.countFavourites(s.client), x, y, 205);
-            addSubLabel(s, "Blocked servers: " + ToolState.blockedCount(), x + 215, y, 205); y += 30;
-            subButton(s, "Reset Added/Deleted Stats", x, y, 200,
+            int contentWidth = Math.min(420, s.width - 12), x = (s.width - contentWidth) / 2, y = 38;
+            int half = (contentWidth - 10) / 2;
+            addSubLabel(s, "Server Seeker Stats", x, y, contentWidth); y += 30;
+            addSubLabel(s, "Added history: " + ToolState.addedHistoryCount(), x, y, contentWidth); y += 23;
+            addSubLabel(s, "Addresses remembered so previously added servers can be skipped.", x, y, contentWidth); y += 26;
+            addSubLabel(s, "Servers added: " + ToolState.addedCount, x, y, half);
+            addSubLabel(s, "Servers deleted: " + ToolState.deletedCount, x + half + 10, y, contentWidth - half - 10); y += 26;
+            addSubLabel(s, "Favourite servers: " + ServerListBridge.countFavourites(s.client), x, y, half);
+            addSubLabel(s, "Blocked servers: " + ToolState.blockedCount(), x + half + 10, y, contentWidth - half - 10); y += 30;
+            subButton(s, "Reset Added/Deleted Stats", x, y, half,
                     "Reset only the Servers added and Servers deleted counters.", b -> { ToolState.resetStats(); showSeekerStats(s); });
-            subButton(s, "Back", x + 320, y, 100,
+            subButton(s, "Back", x + contentWidth - 100, y, 100,
                     "Return to Server Seeker Settings.", b -> showSettings(s));
         } catch (Throwable t) {
             log("Could not open Server Seeker stats", t);
@@ -1311,8 +1920,14 @@ public final class ServerFinderClient {
             BreakBlocksContributor.ContributionSnapshot stats = BreakBlocksContributor.snapshot();
             BreakBlocksRateBudget.Snapshot quota = stats.quota();
             BreakBlocksAccount.Snapshot account = BreakBlocksAccount.snapshot();
-            int cx = s.width / 2, x = cx - 220, y = 28;
-            addSubLabel(s, "BreakBlocks Contribution Stats", x, y, 440); y += 24;
+            int contentWidth = Math.min(440, s.width - 12), x = (s.width - contentWidth) / 2, y = 28;
+            addSubLabel(s, "BreakBlocks Contribution Stats", x, y, contentWidth - 205);
+            subButton(s, "Refresh", x + contentWidth - 200, y, 95,
+                    "Reload contribution statistics.", b -> showContributionStats(s));
+            subButton(s, "Back", x + contentWidth - 100, y, 100,
+                    "Return to Server Seeker Settings.", b -> {
+                        s.confirmClearContributionStats = false; s.contributionMessage = ""; showSettings(s);
+                    }); y += 24;
             String mode = account.authed()
                     ? (account.patreonTier().isBlank() ? "Authenticated API key" : account.patreonTier())
                     : quota.authenticated()
@@ -1320,53 +1935,32 @@ public final class ServerFinderClient {
                             : "Anonymous";
             String allowance = quota.unlimited() ? "Unlimited" : quota.remaining() + "/" + quota.limit();
             String reset = quota.unlimited() ? "n/a" : quota.resetSeconds() > 0 ? quota.resetSeconds() + "s" : "ready";
-            addSubLabel(s, "Mode: " + mode + "   Allowance: " + allowance
-                    + "   Reset: " + reset + (quota.paused() ? "   PAUSED" : ""), x, y, 440); y += 23;
+            addSubLabel(s, shorten("Mode: " + mode + "   Allowance: " + allowance
+                    + "   Reset: " + reset + (quota.paused() ? "   PAUSED" : ""), contentWidth / 6), x, y, contentWidth); y += 23;
             addSubLabel(s, "Session — Accepted " + stats.acceptedSession() + "  Refreshing " + stats.refreshingSession()
-                    + "  429s " + stats.rateLimitedSession() + "  Failed " + stats.failedSession(), x, y, 440); y += 23;
+                    + "  429s " + stats.rateLimitedSession() + "  Failed " + stats.failedSession(), x, y, contentWidth); y += 23;
             addSubLabel(s, "Overall — Accepted " + stats.acceptedOverall() + "  Refreshing " + stats.refreshingOverall()
-                    + "  429s " + stats.rateLimitedOverall() + "  Failed " + stats.failedOverall(), x, y, 440); y += 23;
+                    + "  429s " + stats.rateLimitedOverall() + "  Failed " + stats.failedOverall(), x, y, contentWidth); y += 23;
             String current = stats.currentEndpoint().isBlank() ? "None" : stats.currentEndpoint();
-            addSubLabel(s, "Current: " + current + "   Failed awaiting retry: " + stats.failedPending(), x, y, 440); y += 25;
+            addSubLabel(s, shorten("Current: " + current + "   Failed awaiting retry: " + stats.failedPending()
+                    + "   Pending: " + stats.queued().size(), contentWidth / 6), x, y, contentWidth); y += 25;
 
-            List<String> queued = stats.queued();
-            int pageSize = s.height >= 430 ? 8 : 5;
-            int pages = Math.max(1, (queued.size() + pageSize - 1) / pageSize);
-            s.contributionPage = Math.max(0, Math.min(s.contributionPage, pages - 1));
-            addSubLabel(s, "Pending queue: " + queued.size(), x, y, 440); y += 22;
-            int start = s.contributionPage * pageSize;
-            for (int i = 0; i < pageSize && start + i < queued.size(); i++) {
-                String endpoint = queued.get(start + i);
-                addSubLabel(s, (endpoint.equals(stats.currentEndpoint()) ? "▶ " : "") + endpoint,
-                        x, y, 440);
-                y += 22;
-            }
-
-            int navY = Math.max(y + 2, s.height - 72);
-            addSub(s, Reflection.makeButton("< Previous", x, navY, 100, 20, b -> {
-                if (s.contributionPage > 0) s.contributionPage--;
-                showContributionStats(s);
-            }));
-            addSubLabel(s, "Page " + (s.contributionPage + 1) + "/" + pages, x + 105, navY, 90);
-            addSub(s, Reflection.makeButton("Next >", x + 200, navY, 90, 20, b -> {
-                if (s.contributionPage + 1 < pages) s.contributionPage++;
-                showContributionStats(s);
-            }));
-            addSub(s, Reflection.makeButton("Refresh", x + 300, navY, 140, 20, b -> showContributionStats(s)));
-
-            int controlsY = navY + 24;
-            addSub(s, Reflection.makeButton("Retry Failed (" + stats.failedPending() + ")", x, controlsY, 140, 20, b -> {
+            int controlWidth = (contentWidth - 8) / 3;
+            subButton(s, "Retry Failed (" + stats.failedPending() + ")", x, y, controlWidth,
+                    "Requeue failed contributions.", b -> {
                 int retried = BreakBlocksContributor.retryFailed();
                 s.contributionMessage = retried == 0 ? "No failed contributions to retry." : "Queued " + retried + " failed contribution(s).";
                 showContributionStats(s);
-            }));
-            addSub(s, Reflection.makeButton("Open Log Folder", x + 144, controlsY, 140, 20, b -> {
+            });
+            subButton(s, "Open Log Folder", x + controlWidth + 4, y, controlWidth,
+                    "Open the Minecraft config folder.", b -> {
                 s.contributionMessage = BreakBlocksContributor.openLogFolder()
                         ? "Opened the Minecraft config folder." : "Could not open the config folder.";
                 showContributionStats(s);
-            }));
+            });
             String clearLabel = s.confirmClearContributionStats ? "Confirm Clear Stats" : "Clear Statistics";
-            addSub(s, Reflection.makeButton(clearLabel, x + 288, controlsY, 152, 20, b -> {
+            subButton(s, clearLabel, x + (controlWidth + 4) * 2, y, contentWidth - (controlWidth + 4) * 2,
+                    "Clear recorded contribution statistics; keep the queue.", b -> {
                 if (s.confirmClearContributionStats) {
                     BreakBlocksContributor.clearStatistics();
                     s.confirmClearContributionStats = false;
@@ -1376,16 +1970,33 @@ public final class ServerFinderClient {
                     s.contributionMessage = "Press Confirm Clear Stats to continue.";
                 }
                 showContributionStats(s);
-            }));
-            int bottomY = controlsY + 24;
-            addSubLabel(s, s.contributionMessage.isBlank() ? "Queue continues in the background while Minecraft is open."
-                    : s.contributionMessage, x, bottomY, 330);
-            addSub(s, Reflection.makeButton("Back", x + 340, bottomY, 100, 20, b -> {
-                s.confirmClearContributionStats = false;
-                s.contributionMessage = "";
-                clearSubView(s);
-                showSettings(s);
-            }));
+            });
+            y += 24;
+            List<String> queued = stats.queued();
+            if (s.height >= 245) {
+                addSubLabel(s, s.contributionMessage.isBlank() ? "Pending queue: " + queued.size()
+                        : shorten(s.contributionMessage, contentWidth / 6), x, y, contentWidth);
+                y += 22;
+            }
+            int pageSize = Math.max(1, Math.min(8, (s.height - y - 36) / 22));
+            int pages = Math.max(1, (queued.size() + pageSize - 1) / pageSize);
+            s.contributionPage = Math.max(0, Math.min(s.contributionPage, pages - 1));
+            if (s.height >= 245) {
+                int start = s.contributionPage * pageSize;
+                for (int i = start; i < Math.min(queued.size(), start + pageSize); i++) {
+                    String endpoint = queued.get(i);
+                    addSubLabel(s, (endpoint.equals(stats.currentEndpoint()) ? "▶ " : "") + endpoint, x, y, contentWidth);
+                    y += 22;
+                }
+            }
+            int navY = s.height - 28;
+            Object previous = subButton(s, "< Previous", x, navY, 100,
+                    "Previous queued servers page.", b -> { s.contributionPage--; showContributionStats(s); });
+            addSubLabel(s, "Page " + (s.contributionPage + 1) + "/" + pages, x + 105, navY, contentWidth - 210);
+            Object next = subButton(s, "Next >", x + contentWidth - 100, navY, 100,
+                    "Next queued servers page.", b -> { s.contributionPage++; showContributionStats(s); });
+            Reflection.setBoolean(previous, "active", s.contributionPage > 0);
+            Reflection.setBoolean(next, "active", s.contributionPage + 1 < pages);
         } catch (Throwable t) {
             log("Could not open contribution stats", t);
             clearSubView(s);
@@ -1410,23 +2021,30 @@ public final class ServerFinderClient {
         try {
             clearSubView(s); hideMain(s);
             List<String> blocked = ToolState.blockedSnapshot();
-            int pageSize = 8, pages = Math.max(1, (blocked.size() + pageSize - 1) / pageSize);
+            int pageSize = listRowsPerPage(s), pages = Math.max(1, (blocked.size() + pageSize - 1) / pageSize);
             s.blockedPage = Math.max(0, Math.min(s.blockedPage, pages - 1));
-            int cx = s.width / 2, x = cx - 210, y = 34;
-            addSubLabel(s, "Blocked / Deleted Servers — " + blocked.size(), x, y, 420); y += 26;
+            int contentWidth = Math.min(420, s.width - 12), x = (s.width - contentWidth) / 2, y = 34;
+            addSubLabel(s, "Blocked / Deleted Servers — " + blocked.size(), x, y, contentWidth); y += 26;
             int start = s.blockedPage * pageSize;
             for (int i = 0; i < pageSize && start + i < blocked.size(); i++) {
                 String endpoint = blocked.get(start + i);
-                addSubLabel(s, endpoint, x, y, 300);
-                addSub(s, Reflection.makeButton("Unblock", x + 306, y, 104, 20, b -> { ToolState.unblock(endpoint); showBlockedList(s); }));
+                addSubLabel(s, endpoint, x, y, contentWidth - 110);
+                subButton(s, "Unblock", x + contentWidth - 104, y, 104,
+                        "Allow this server in future searches.", b -> { ToolState.unblock(endpoint); showBlockedList(s); });
                 y += 23;
             }
-            int navY = Math.max(y + 4, s.height - 55);
-            addSub(s, Reflection.makeButton("< Previous", x, navY, 100, 20, b -> { if (s.blockedPage > 0) s.blockedPage--; showBlockedList(s); }));
-            addSubLabel(s, "Page " + (s.blockedPage + 1) + "/" + pages, x + 105, navY, 90);
-            addSub(s, Reflection.makeButton("Next >", x + 200, navY, 90, 20, b -> { if (s.blockedPage + 1 < pages) s.blockedPage++; showBlockedList(s); }));
-            addSub(s, Reflection.makeButton("Clear Entire Blocked List", x, navY + 24, 200, 20, b -> { ToolState.clearBlocked(); s.blockedPage = 0; showBlockedList(s); }));
-            addSub(s, Reflection.makeButton("Back", x + 310, navY + 24, 100, 20, b -> { clearSubView(s); showMain(s); }));
+            int navY = s.height - 52;
+            Object previous = subButton(s, "< Previous", x, navY, 100,
+                    "Previous blocked servers page.", b -> { s.blockedPage--; showBlockedList(s); });
+            addSubLabel(s, "Page " + (s.blockedPage + 1) + "/" + pages, x + 105, navY, contentWidth - 210);
+            Object next = subButton(s, "Next >", x + contentWidth - 100, navY, 100,
+                    "Next blocked servers page.", b -> { s.blockedPage++; showBlockedList(s); });
+            Reflection.setBoolean(previous, "active", s.blockedPage > 0);
+            Reflection.setBoolean(next, "active", s.blockedPage + 1 < pages);
+            subButton(s, "Clear Entire Blocked List", x, s.height - 28, 200,
+                    "Remove all blocked entries.", b -> { ToolState.clearBlocked(); s.blockedPage = 0; showBlockedList(s); });
+            subButton(s, "Back", x + contentWidth - 100, s.height - 28, 100,
+                    "Return to Finder.", b -> { clearSubView(s); showMain(s); });
         } catch (Throwable t) { log("Could not open blocked list", t); clearSubView(s); showMain(s); }
     }
 
@@ -1535,14 +2153,15 @@ public final class ServerFinderClient {
     }
     private static String breakBlocksApiStatusLabel(OverlayState s) {
         if (!ToolState.hasBreakBlocksApiKey()) return "BreakBlocks API: Anonymous (no key configured)";
-        if (s.apiKeyDisabledForSession) return "BreakBlocks API: Key rejected — anonymous fallback active";
+        if (s.apiKeyDisabledForSession) return "BreakBlocks API: " + s.apiKeyDisabledReason + " — anonymous fallback";
         BreakBlocksAccount.Snapshot account = BreakBlocksAccount.snapshot();
         if (account.authed()) {
             String tier = account.patreonTier().isBlank() ? "Authenticated key" : account.patreonTier();
             return "BreakBlocks API: " + tier + (account.paid() ? " — unlimited results" : " — authenticated");
         }
         if (s.apiKeyCheckedThisSession) return "BreakBlocks API: Key sent, but API reported authed=false";
-        return "BreakBlocks API: Key configured (validated on next search)";
+        if (s.apiKeyResponseWithoutAuthStatus) return "BreakBlocks API: Key sent; API gave no auth status";
+        return "BreakBlocks API: Key configured (check with Test API Key)";
     }
     private static String autoLabel(OverlayState s) { return "Auto-add: " + onOff(s.autoAdd); }
     private static void setStatus(OverlayState s, String text) { Reflection.setButtonText(s.statusButton, shorten(text, 84)); }
@@ -1592,9 +2211,10 @@ public final class ServerFinderClient {
         int displayed = asInt(data.get("displayed"), servers.size());
         int total = asInt(data.get("total"), displayed);
         int filtered = asInt(data.get("filtered"), total);
+        boolean authStatusPresent = data.containsKey("authed") || top.containsKey("authed");
         boolean authed = asBoolean(firstNonNull(data.get("authed"), top.get("authed")), false);
         String patreonTier = asString(firstNonNull(data.get("patreon_tier"), top.get("patreon_tier")), "").trim();
-        return new SearchResult(servers, displayed, total, filtered, authed, patreonTier);
+        return new SearchResult(servers, displayed, total, filtered, authStatusPresent, authed, patreonTier);
     }
 
     static List<ServerRecord> parseCornbreadResult(String json) {
@@ -1691,7 +2311,18 @@ public final class ServerFinderClient {
         final EnumMap<Provider, Integer> providerRequestCounts = new EnumMap<>(Provider.class);
         final EnumMap<Provider, Integer> providerDuplicateOnlyStreaks = new EnumMap<>(Provider.class);
         final EnumSet<Provider> disabledProviders = EnumSet.noneOf(Provider.class);
-        boolean open, loading, autoAdd, exhausted, apiKeyDisabledForSession, apiKeyAcceptedThisSession, apiKeyCheckedThisSession, breakBlocksPaidTier;
+        boolean open, loading, autoAdd, exhausted, apiKeyDisabledForSession, apiKeyAcceptedThisSession, apiKeyCheckedThisSession, apiKeyResponseWithoutAuthStatus, breakBlocksPaidTier;
+        boolean mainVisible = true, apiKeyTestOpen;
+        String lastConfiguredApiKey, apiKeyDisabledReason = "";
+        boolean browserOpen, browserLoading, browserPaidTier;
+        int browserVersionIndex, browserMinIndex, browserMaxIndex, browserSortIndex, browserTypeIndex, browserAgeDays;
+        int browserPage = 1, browserRowPage, browserAvailablePages = 1, browserFiltered, browserHiddenWhitelisted;
+        long browserRequestToken;
+        long apiKeyTestToken;
+        String apiKeyTestStatus = "Press Retry Check after changing the config key.";
+        int settingsPage, finderDetailsPage, browserDetailsPage, recentlyRemovedPage;
+        String browserStatus = "Choose a page to browse.";
+        List<ServerRecord> browserResults = List.of();
         int versionIndex, minIndex, maxIndex, sortIndex, serverTypeIndex, sourceIndex, autoAddedThisSession, blockedPage, resultPage, allSourceCursor, contributionPage;
         long autoAddScheduleToken, searchGeneration;
         int breakBlocksPageCapacity, breakBlocksAvailablePages, breakBlocksCurrentPage, breakBlocksApiResults, breakBlocksProbeAttempts, breakBlocksStatusReplies, breakBlocksLiveVerified;
@@ -1702,14 +2333,14 @@ public final class ServerFinderClient {
         boolean confirmClearContributionStats;
         Provider activeProvider;
         List<ServerRecord> results = List.of();
-        Object versionButton, minButton, maxButton, serverTypeButton, findButton, autoButton, resetButton, closeButton, sortButton, settingsButton, blockedButton, statusButton;
+        Object versionButton, minButton, maxButton, serverTypeButton, findButton, autoButton, resetButton, closeButton, sortButton, settingsButton, blockedButton, browserButton, statusButton;
         Object previousResultsButton, resultPageButton, nextResultsButton;
         OverlayState(Object client, Object screen, int width, int height) { this.client = client; this.screen = screen; this.width = width; this.height = height; }
     }
 
     record WidgetState(boolean visible, boolean active) {}
     record SearchResult(List<ServerRecord> servers, int displayed, int total, int filtered,
-                        boolean authed, String patreonTier) {}
+                        boolean authStatusPresent, boolean authed, String patreonTier) {}
     record ServerRecord(String address, int port, String version, int playersOnline, int playersMax,
                         String motd, String country, String countryCode, String city, String region,
                         String lastPing, String modpack, boolean offlineMode, boolean whitelisted,
@@ -1744,6 +2375,21 @@ public final class ServerFinderClient {
             ToolState.recordAdded(record.endpoint(), record.version(), record.protocol());
             ServerCategoryStore.markScanned(record.endpoint());
             ServerAuthService.ensureAsync(client, record.endpoint(), record.protocol(), null);
+            return true;
+        }
+
+        static boolean addBrowsed(Object client, ServerRecord record) throws Exception {
+            if (ToolState.isBlocked(record.endpoint())) return false;
+            Object list = createLoadedList(client);
+            if (findServer(list, record.endpoint()) != null) return false;
+            // Browsing is a deliberate user choice, so these belong in Servers.
+            // Avoid the Finder's "[version]" name used to recover Scanned rows
+            // when someone copies only servers.dat into another instance.
+            Object data = createServerData(record.address(), record.endpoint());
+            addServerData(list, data);
+            save(list);
+            ServerCategoryStore.syncNew(List.of(record.endpoint()));
+            ToolState.recordAdded(record.endpoint(), record.version(), record.protocol());
             return true;
         }
 
