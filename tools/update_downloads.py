@@ -71,9 +71,10 @@ def merge_counts(previous, releases, repository):
     if not isinstance(previous.get("assets"), dict):
         raise ValueError("Invalid asset ledger")
     state = deepcopy(previous)
+    historical = nonnegative_int(state.get("historical_downloads", 0))
     for saved in state["assets"].values():
         nonnegative_int(saved["downloads"])
-    old_total = sum(saved["downloads"] for saved in state["assets"].values())
+    old_total = historical + sum(saved["downloads"] for saved in state["assets"].values())
     if previous.get("total_downloads") != old_total:
         raise ValueError("Saved total does not match asset ledger")
     for release in releases:
@@ -91,14 +92,14 @@ def merge_counts(previous, releases, repository):
                 "release_tag": release["tag_name"],
                 "downloads": max(count, saved["downloads"] if saved else 0),
             }
-    state["total_downloads"] = sum(a["downloads"] for a in state["assets"].values())
+    state["total_downloads"] = historical + sum(a["downloads"] for a in state["assets"].values())
     return state
 
 
 def badge_svg(total):
-    label = "GitHub downloads"
+    label = "Downloads"
     value = f"{nonnegative_int(total):,}"
-    left, right = 116, max(34, len(value) * 8 + 16)
+    left, right = 82, max(34, len(value) * 8 + 16)
     width = left + right
     return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="22" role="img" aria-label="{label}: {value}">
   <title>{label}: {value}</title>

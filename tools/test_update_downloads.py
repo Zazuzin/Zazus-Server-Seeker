@@ -43,6 +43,26 @@ class DownloadCounterTests(unittest.TestCase):
         result = counter.merge_counts(first, [release(asset(1, 0))], REPO)
         self.assertEqual(result["total_downloads"], 8)
 
+    def test_historical_downloads_survive_refreshes_deletion_and_replacement(self):
+        first = counter.merge_counts(empty_ledger(), [release(asset(1, 5), asset(2, 3))], REPO)
+        first["historical_downloads"] = 48
+        first["total_downloads"] = 56
+        repeated = counter.merge_counts(first, [release(asset(1, 5), asset(2, 3))], REPO)
+        self.assertEqual(repeated["total_downloads"], 56)
+        grown = counter.merge_counts(repeated, [release(asset(1, 6), asset(2, 3))], REPO)
+        self.assertEqual(grown["total_downloads"], 57)
+        deleted = counter.merge_counts(grown, [], REPO)
+        self.assertEqual(deleted["total_downloads"], 57)
+        replaced = counter.merge_counts(deleted, [release(asset(3, 2), tag="v2")], REPO)
+        self.assertEqual(replaced["total_downloads"], 59)
+        self.assertEqual(replaced["historical_downloads"], 48)
+
+    def test_invalid_historical_count_cannot_reduce_total(self):
+        state = empty_ledger()
+        state["historical_downloads"] = -48
+        with self.assertRaises(ValueError):
+            counter.merge_counts(state, [], REPO)
+
     def test_counts_prereleases_both_versions_but_not_sources_or_drafts(self):
         result = counter.merge_counts(empty_ledger(), [
             release(asset(1, 5), asset(2, 3, "Zazus-Server-Seeker-1-mc26.3.jar"),
@@ -97,7 +117,7 @@ class DownloadCounterTests(unittest.TestCase):
     def test_badge_is_valid_svg_with_exact_total(self):
         svg = counter.badge_svg(12345)
         root = ElementTree.fromstring(svg)
-        self.assertEqual(root.attrib["aria-label"], "GitHub downloads: 12,345")
+        self.assertEqual(root.attrib["aria-label"], "Downloads: 12,345")
 
 
 if __name__ == "__main__":
