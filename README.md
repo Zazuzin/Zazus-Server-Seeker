@@ -1,5 +1,7 @@
 # Zazu's Server Seeker
 
+[![Total GitHub JAR downloads](docs/downloads.svg)](https://github.com/Zazuzin/Zazus-Server-Seeker/releases)
+
 ![Zazu's Server Seeker logo](src/main/resources/assets/zazus-server-tool/icon.png)
 
 Zazu's Server Seeker is a client-side Fabric mod for Minecraft Java Edition 26.2 and 26.3. It adds a server finder, useful Multiplayer categories, server management tools and per-server notes without requiring Meteor Client.
@@ -124,6 +126,14 @@ Use JDK 25 with the included Gradle 9.5.1 wrapper and Fabric Loom project:
 
 The built JAR is written to `build/libs/`. The 26.3 source is in [`versions/mc26.3/`](versions/mc26.3/) on this branch. To build it, run `cd versions/mc26.3` followed by `./build.sh` and `./verify.sh`.
 
+## Download counter
+
+The badge counts downloads of the mod's release JARs across Minecraft versions and releases, including prereleases. It counts downloads, not unique users; source archives and source/Javadoc JARs are excluded.
+
+A GitHub Actions workflow refreshes the count approximately hourly and after release/build activity. It stores the highest observed count for each release asset in `docs/downloads.json`, so new releases and replacement or deleted assets do not reset downloads already recorded. Keep this file when cleaning up releases.
+
+The counter starts with the downloads GitHub still reports when tracking is enabled. Counts for previously deleted assets cannot be recovered. Downloads between the last refresh and an asset's deletion may be missed; before deleting or replacing an asset, run **Actions → Update download counter → Run workflow** and wait for it to finish. GitHub can delay scheduled jobs or disable them after 60 days without repository activity; re-enable the workflow in Actions if that happens.
+
 ## Credits
 
 Created by Zazuzin.
@@ -133,3 +143,4 @@ Special thanks to [BreakBlocks](https://breakblocks.com) for its server-discover
 ## License
 
 Licensed under the [GNU General Public License v3.0 only](LICENSE).
+

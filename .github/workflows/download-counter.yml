@@ -1,0 +1,67 @@
+name: Update download counter
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  release:
+    types: [published, edited, deleted]
+  workflow_run:
+    workflows: ["Build and verify", "Release v1.2.1 for Minecraft 26.2 and 26.3"]
+    types: [completed]
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/download-counter.yml
+      - tools/update_downloads.py
+      - tools/test_update_downloads.py
+
+permissions:
+  contents: write
+
+concurrency:
+  group: download-counter
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: >-
+      github.repository == 'Zazuzin/Zazus-Server-Seeker' &&
+      (github.event_name != 'workflow_run' ||
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the default branch and saved counts
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Test counter persistence
+        run: python3 -m unittest discover -s tools -p test_update_downloads.py -v
+
+      - name: Refresh and save observed JAR downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOWNLOAD_REPOSITORY: ${{ github.repository }}
+          DOWNLOAD_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # Retry after a concurrent source push, re-reading its saved ledger each time.
+          for attempt in 1 2 3; do
+            git fetch origin "$DOWNLOAD_BRANCH"
+            git reset --hard "origin/$DOWNLOAD_BRANCH"
+            python3 tools/update_downloads.py --repository "$DOWNLOAD_REPOSITORY"
+            git add docs/downloads.json docs/downloads.svg
+            if git diff --cached --quiet; then
+              exit 0
+            fi
+            git commit -m 'docs: update recorded download total [skip ci]'
+            if git push origin "HEAD:$DOWNLOAD_BRANCH"; then
+              exit 0
+            fi
+          done
+          echo 'Could not save download counts after three attempts.' >&2
+          exit 1
