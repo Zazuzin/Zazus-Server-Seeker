@@ -1,6 +1,6 @@
 # Zazu's Server Seeker
 
-[![Total GitHub JAR downloads](docs/downloads.svg)](https://github.com/Zazuzin/Zazus-Server-Seeker/releases)
+[![Downloads](docs/downloads.svg)](https://github.com/Zazuzin/Zazus-Server-Seeker/releases)
 
 ![Zazu's Server Seeker logo](src/main/resources/assets/zazus-server-tool/icon.png)
 
@@ -132,7 +132,9 @@ The badge counts downloads of the mod's release JARs across Minecraft versions a
 
 A GitHub Actions workflow refreshes the count approximately hourly and after release/build activity. It stores the highest observed count for each release asset in `docs/downloads.json`, so new releases and replacement or deleted assets do not reset downloads already recorded. Keep this file when cleaning up releases.
 
-The counter starts with the downloads GitHub still reports when tracking is enabled. Counts for previously deleted assets cannot be recovered. Downloads between the last refresh and an asset's deletion may be missed; before deleting or replacing an asset, run **Actions → Update download counter → Run workflow** and wait for it to finish. GitHub can delay scheduled jobs or disable them after 60 days without repository activity; re-enable the workflow in Actions if that happens.
+The total includes 48 historical downloads from older versions, supplied by the project owner, plus the release downloads tracked automatically. This brings the starting combined total to 56. The historical count is saved separately and retained during future refreshes.
+
+Downloads between the last refresh and an asset's deletion may be missed; before deleting or replacing an asset, run **Actions → Update download counter → Run workflow** and wait for it to finish. GitHub can delay scheduled jobs or disable them after 60 days without repository activity; re-enable the workflow in Actions if that happens.
 
 ## Credits
 
