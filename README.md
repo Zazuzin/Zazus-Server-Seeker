@@ -10,7 +10,7 @@ Zazu's Server Seeker is a client-side Fabric mod for Minecraft Java Edition 26.2
 
 - [Releases](https://github.com/Zazuzin/Zazus-Server-Seeker/releases)
 - [Issues](https://github.com/Zazuzin/Zazus-Server-Seeker/issues)
-- [Discord support](https://discord.gg/TC4PhPx9sf)
+- [Discord support](breakblocks.com/discord)
 
 ## Features
 
@@ -112,9 +112,6 @@ All Server Seeker configuration and data now lives under:
 ```text
 config/zazus-server-seeker/
 ```
-
-On first launch, legacy Server Seeker files and folders are moved there without overwriting an existing destination. When moving instances, copy this whole folder together with `servers.dat`. If only `servers.dat` was copied, Finder-generated names are used to recover a bulk imported list into **Scanned Servers** instead of leaving hundreds of entries in **Servers**.
-
 ## Building
 
 Use JDK 25 with the included Gradle 9.5.1 wrapper and Fabric Loom project:
@@ -126,21 +123,11 @@ Use JDK 25 with the included Gradle 9.5.1 wrapper and Fabric Loom project:
 
 The built JAR is written to `build/libs/`. The 26.3 source is in [`versions/mc26.3/`](versions/mc26.3/) on this branch. To build it, run `cd versions/mc26.3` followed by `./build.sh` and `./verify.sh`.
 
-## Download counter
-
-The badge counts downloads of the mod's release JARs across Minecraft versions and releases, including prereleases. It counts downloads, not unique users; source archives and source/Javadoc JARs are excluded.
-
-A GitHub Actions workflow refreshes the count approximately hourly and after release/build activity. It stores the highest observed count for each release asset in `docs/downloads.json`, so new releases and replacement or deleted assets do not reset downloads already recorded. Keep this file when cleaning up releases.
-
-The total includes 48 historical downloads from older versions, supplied by the project owner, plus the release downloads tracked automatically. This brings the starting combined total to 56. The historical count is saved separately and retained during future refreshes.
-
-Downloads between the last refresh and an asset's deletion may be missed; before deleting or replacing an asset, run **Actions → Update download counter → Run workflow** and wait for it to finish. GitHub can delay scheduled jobs or disable them after 60 days without repository activity; re-enable the workflow in Actions if that happens.
-
 ## Credits
 
 Created by Zazuzin.
 
-Special thanks to [BreakBlocks](https://breakblocks.com) for its server-discovery service and contribution support. You can also find Zazuzin in the [BreakBlocks Discord](https://breakblocks.com/discord).
+Special thanks to Sheepy @ [BreakBlocks](https://breakblocks.com) for your server-discovery service and contribution support. You can also find Me in the [BreakBlocks Discord](https://breakblocks.com/discord).
 
 ## License
 
