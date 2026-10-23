@@ -10,7 +10,7 @@ Zazu's Server Seeker is a client-side Fabric mod for Minecraft Java Edition 26.2
 
 - [Releases](https://github.com/Zazuzin/Zazus-Server-Seeker/releases)
 - [Issues](https://github.com/Zazuzin/Zazus-Server-Seeker/issues)
-- [Discord support](breakblocks.com/discord)
+- [Discord support](https://breakblocks.com/discord)
 
 ## Features
 
