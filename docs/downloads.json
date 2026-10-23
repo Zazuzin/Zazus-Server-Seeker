@@ -1,7 +1,7 @@
 {
   "assets": {
     "653365786": {
-      "downloads": 5,
+      "downloads": 7,
       "name": "Zazus-Server-Seeker-1.2.1-mc26.2.jar",
       "release_tag": "v1.2.1"
     },
@@ -15,5 +15,5 @@
   "historical_downloads_note": "Downloads from older versions reported by the project owner; combined with 8 already tracked downloads for an initial total of 56.",
   "repository": "Zazuzin/Zazus-Server-Seeker",
   "schema_version": 1,
-  "total_downloads": 56
+  "total_downloads": 58
 }
