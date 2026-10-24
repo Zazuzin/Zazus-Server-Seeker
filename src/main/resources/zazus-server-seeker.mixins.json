@@ -3,7 +3,8 @@
   "package": "dev.zazuzin.zst.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
-    "OnlineServerEntryMixin"
+    "OnlineServerEntryMixin",
+    "StatusResponsePacketMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -13,6 +13,8 @@ public final class ServerPlayerRecord {
     private String lastSeenAt;
     private int encounters;
     private String notes;
+    private int pingSightings;
+    private String lastPingSeenAt = "";
 
     public ServerPlayerRecord(String key, String uuid, String username) {
         String now = TimeUtil.now();
@@ -32,6 +34,32 @@ public final class ServerPlayerRecord {
     public String lastSeenAt() { return lastSeenAt; }
     public int encounters() { return encounters; }
     public String notes() { return notes; }
+    public int pingSightings() { return pingSightings; }
+    public String lastPingSeenAt() { return lastPingSeenAt; }
+    public void rekey(String key) { this.key = key; }
+
+    public static ServerPlayerRecord fromPing(String key, String uuid, String username, String observedAt) {
+        ServerPlayerRecord record = new ServerPlayerRecord(key, uuid, username);
+        record.encounters = 0;
+        record.firstSeenAt = observedAt;
+        record.lastSeenAt = observedAt;
+        record.lastPingSeenAt = observedAt;
+        record.pingSightings = 1;
+        return record;
+    }
+
+    public boolean observePing(String uuid, String username, String observedAt) {
+        java.time.Instant seen = java.time.Instant.parse(observedAt);
+        boolean changed = refreshIdentity(uuid, username);
+        if (!lastPingSeenAt.isBlank()) {
+            java.time.Instant previous = java.time.Instant.parse(lastPingSeenAt);
+            if (seen.isBefore(previous.plusSeconds(60))) return changed;
+        }
+        lastPingSeenAt = observedAt;
+        if (lastSeenAt.isBlank() || seen.isAfter(java.time.Instant.parse(lastSeenAt))) lastSeenAt = observedAt;
+        if (pingSightings < Integer.MAX_VALUE) pingSightings++;
+        return true;
+    }
 
     public boolean beginEncounter(String uuid, String username) {
         refreshIdentity(uuid, username);
@@ -66,6 +94,8 @@ public final class ServerPlayerRecord {
         map.put("lastSeenAt", lastSeenAt);
         map.put("encounters", encounters);
         map.put("notes", notes);
+        map.put("pingSightings", pingSightings);
+        map.put("lastPingSeenAt", lastPingSeenAt);
         return map;
     }
 
@@ -79,7 +109,13 @@ public final class ServerPlayerRecord {
         record.key = key;
         record.firstSeenAt = string(map, "firstSeenAt", record.firstSeenAt);
         record.lastSeenAt = string(map, "lastSeenAt", record.lastSeenAt);
-        record.encounters = Math.max(1, integer(map, "encounters", 1));
+        record.encounters = Math.max(0, integer(map, "encounters", 1));
+        record.pingSightings = Math.max(0, integer(map, "pingSightings", 0));
+        record.lastPingSeenAt = string(map, "lastPingSeenAt", "");
+        if (!record.lastPingSeenAt.isBlank()) {
+            try { java.time.Instant.parse(record.lastPingSeenAt); }
+            catch (RuntimeException invalid) { record.lastPingSeenAt = ""; }
+        }
         record.notes = string(map, "notes", "");
         return record;
     }

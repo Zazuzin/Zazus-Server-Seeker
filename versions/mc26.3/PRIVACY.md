@@ -32,3 +32,7 @@ No local configuration or server history is bundled with official source or bina
 ## Removing data
 
 Remove the mod and its `config/zazus-server-seeker/` directory to delete mod-owned local data. Minecraft's `servers.dat` remains under the instance directory unless you remove it separately.
+
+## Ping sample history
+
+When Record Ping Players is enabled, names/UUIDs supplied in normal Minecraft status replies are saved locally in Server Notes, with sighting timestamps and separate ping counts. Pings can return only a partial or customized sample. This feature sends no extra requests and does not use or unlock VIP Player Search. Unsaved Finder candidates are held only in a bounded five-minute memory cache until added. Disabling recording stops new collection and clears that cache; existing history remains available. Detailed server filters are sent to BreakBlocks as search parameters.

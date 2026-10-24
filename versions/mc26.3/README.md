@@ -10,11 +10,17 @@ Zazu's Server Seeker is a client-side Fabric mod for Minecraft Java Edition 26.2
 - [Issues](https://github.com/Zazuzin/Zazus-Server-Seeker/issues)
 - [Discord support](https://discord.gg/TC4PhPx9sf)
 
-## Development build: 1.2.2-rc.4
+## Development build: 1.2.2-rc.5
 
 Player Search is available from Multiplayer in this test build. It requires a BreakBlocks API key whose account is confirmed as **VIP Treatment**. Exact-name, partial-name and UUID searches show recorded names and associated servers. These are historical sightings and do not prove that a player is currently online on a listed server. Results are kept only for the open search session; servers are saved only when you choose Add.
 
 Users without confirmed VIP access see a membership notice with [Join VIP on Patreon](https://www.patreon.com/c/BreakBlocks), BreakBlocks Account, API Key Settings and Check Access controls. Link Patreon to your BreakBlocks account and configure your own API key using **Multiplayer → Settings → API Key** (or **Finder → Settings → API Key**). The Multiplayer Settings shortcut sits beside Zazu’s Server Seeker and opens preferences directly without starting a scan. Back returns to the menu you opened settings from, including after editing the API key. The editor hides the key by default and includes Save, Save & Test, Clear Key and Show/Hide controls. Changes take effect without restarting Minecraft. Access is checked again when opening Player Search; invalid keys, denied permissions and rate limits do not fall back to public player searches.
+
+## Detailed filters and ping player history
+
+Use **Filters** in Finder or Browse BreakBlocks to enter country/code, region, MOTD text and modpack filters. Blank fields match any; `*` is supported for country, region and MOTD. MOTD text without `*` matches anywhere. Apply selects BreakBlocks and resets the affected search; choosing another Finder source pauses these filters while preserving their values. Auto-add pauses while editing. Values are saved per instance and shared with the browser.
+
+Normal saved-server pings and Finder verification can record the player names included in actual status replies in **Server Notes → Players**. Servers can hide or customize that sample, so it is a historical report, not a complete roster or a verified online indicator. No extra pings or player-search requests are sent. Names stay local; this does not change VIP Player Search access. Unsaved Finder samples remain in a bounded five-minute memory cache and are written only when you add the server. Repeated samples count at most once per player per minute, separately from connected encounters. Disable this under **Settings → Record Ping Players**.
 
 ## Features
 

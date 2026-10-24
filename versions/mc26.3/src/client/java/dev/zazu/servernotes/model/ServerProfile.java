@@ -38,7 +38,7 @@ public final class ServerProfile {
         this.generalNotes = "";
         this.createdAt = now;
         this.updatedAt = now;
-        this.lastJoinedAt = now;
+        this.lastJoinedAt = "";
         this.serverVersion = "";
         this.authenticationType = "unknown";
     }

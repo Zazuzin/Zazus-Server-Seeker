@@ -98,6 +98,8 @@ public final class ServerFinderClient {
         state.serverTypeIndex = clampIndex(ToolState.serverTypeIndex, SERVER_TYPE_LABELS.length, 0);
         state.sourceIndex = clampIndex(ToolState.finderSourceIndex, SOURCE_LABELS.length, 0);
         state.settingsReturnToMultiplayer = preferences;
+        state.searchFilters = ToolState.activeSearchFilters();
+        if (state.searchFilters.active()) state.sourceIndex = 2;
         state.autoAdd = !browse && !preferences && ToolState.autoAddDefault && !ToolState.quickSearch;
         state.open = true;
         STATES.put(screen, state);
@@ -158,16 +160,18 @@ public final class ServerFinderClient {
         y += 24;
         final int sortMenuY = y + 21;
         int sortWidth = Math.min(388, s.width - 12), sortX = (s.width - sortWidth) / 2;
-        int columnWidth = (sortWidth - 12) / 4, lastWidth = sortWidth - 12 - 3 * columnWidth;
+        int columnWidth = (sortWidth - 16) / 5, lastWidth = sortWidth - 16 - 4 * columnWidth;
         s.sortButton = trackedButton(s, sortLabel(s), sortX, y, columnWidth,
                 "Result order. Click to choose how discovered servers are sorted.",
                 b -> openMainOptionMenu(s, sortX, sortMenuY, columnWidth, List.of(SORT_LABELS), s.sortIndex,
                         selected -> selectSort(s, selected)));
-        s.blockedButton = trackedButton(s, blockedLabel(), sortX + columnWidth + 4, y, columnWidth,
+        s.filtersButton = trackedButton(s, filtersLabel(), sortX + columnWidth + 4, y, columnWidth,
+                "Country, region, MOTD text and modpack filters for BreakBlocks.", b -> openDetailedFilters(s, false));
+        s.blockedButton = trackedButton(s, blockedLabel(), sortX + 2 * (columnWidth + 4), y, columnWidth,
                 "View, unblock or clear servers excluded from future searches.", b -> showBlockedList(s));
-        s.browserButton = trackedButton(s, "Browse BB", sortX + 2 * (columnWidth + 4), y, columnWidth,
+        s.browserButton = trackedButton(s, "Browse BB", sortX + 3 * (columnWidth + 4), y, columnWidth,
                 "Browse BreakBlocks pages and choose individual servers to save.", b -> openBrowser(s));
-        s.settingsButton = trackedButton(s, "Settings", sortX + 3 * (columnWidth + 4), y, lastWidth,
+        s.settingsButton = trackedButton(s, "Settings", sortX + 4 * (columnWidth + 4), y, lastWidth,
                 "Open Finder preferences, statistics and contribution controls.", b -> showSettings(s));
 
         y += 26;
@@ -486,6 +490,7 @@ public final class ServerFinderClient {
 
     private static Provider chooseProviderForNextRequest(OverlayState s) {
         int mode = s.sourceIndex;
+        if (s.searchFilters.active()) return providerAvailableForRequest(s, Provider.BREAKBLOCKS) ? Provider.BREAKBLOCKS : null;
         if (mode == 2) return providerAvailableForRequest(s, Provider.BREAKBLOCKS) ? Provider.BREAKBLOCKS : null;
         if (mode == 3) return providerAvailableForRequest(s, Provider.CORNBREAD) ? Provider.CORNBREAD : null;
         if (mode == 4) return providerAvailableForRequest(s, Provider.MINESCAN) ? Provider.MINESCAN : null;
@@ -563,11 +568,17 @@ public final class ServerFinderClient {
 
     static URI buildBreakBlocksPageUri(OverlayState s, int page) {
         return buildBrowserPageUri(s.versionIndex, s.minIndex, s.maxIndex, s.sortIndex,
-                s.serverTypeIndex, ToolState.breakBlocksMaxAgeDays, page);
+                s.serverTypeIndex, ToolState.breakBlocksMaxAgeDays, page, s.searchFilters);
     }
 
     static URI buildBrowserPageUri(int versionIndex, int minIndex, int maxIndex, int sortIndex,
                                    int serverTypeIndex, int maxAgeDays, int page) {
+        return buildBrowserPageUri(versionIndex, minIndex, maxIndex, sortIndex, serverTypeIndex,
+                maxAgeDays, page, ServerSearchFilters.EMPTY);
+    }
+
+    static URI buildBrowserPageUri(int versionIndex, int minIndex, int maxIndex, int sortIndex,
+                                   int serverTypeIndex, int maxAgeDays, int page, ServerSearchFilters filters) {
         int age = normalizedBreakBlocksAgeDays(maxAgeDays);
         StringBuilder url = new StringBuilder(BREAKBLOCKS_API_URL)
                 .append("?version=").append(enc(VERSION_OPTIONS[clampIndex(versionIndex, VERSION_OPTIONS.length, 0)]))
@@ -579,7 +590,7 @@ public final class ServerFinderClient {
         if (serverTypeIndex == 2) url.append("&offlineOnly=on");
         String sort = SORT_API_VALUES[clampIndex(sortIndex, SORT_API_VALUES.length, 0)];
         if (!sort.isBlank()) url.append("&sort=").append(enc(sort));
-        return URI.create(url.toString());
+        return URI.create(filters.appendTo(url.toString()));
     }
 
     private static void fetchCornbread(OverlayState s) {
@@ -1206,6 +1217,7 @@ public final class ServerFinderClient {
         s.browserSortIndex = s.sortIndex;
         s.browserTypeIndex = s.serverTypeIndex;
         s.browserAgeDays = normalizedBreakBlocksAgeDays(ToolState.breakBlocksMaxAgeDays);
+        s.browserSearchFilters = ToolState.activeSearchFilters();
         s.browserPage = 1;
         s.browserRowPage = 0;
         s.browserResults = List.of();
@@ -1263,7 +1275,7 @@ public final class ServerFinderClient {
         long token = ++s.browserRequestToken;
         showBrowser(s);
         URI uri = buildBrowserPageUri(s.browserVersionIndex, s.browserMinIndex, s.browserMaxIndex,
-                s.browserSortIndex, s.browserTypeIndex, s.browserAgeDays, s.browserPage);
+                s.browserSortIndex, s.browserTypeIndex, s.browserAgeDays, s.browserPage, s.browserSearchFilters);
         sendBrowserRequest(s, uri, authenticated ? key : "", token);
     }
 
@@ -1301,7 +1313,7 @@ public final class ServerFinderClient {
                 if (s.browserPage > (s.browserTypeIndex == 2 ? 2 : MAX_PUBLIC_PAGES)) {
                     s.browserPage = 1;
                     uri = buildBrowserPageUri(s.browserVersionIndex, s.browserMinIndex, s.browserMaxIndex,
-                            s.browserSortIndex, s.browserTypeIndex, s.browserAgeDays, 1);
+                            s.browserSortIndex, s.browserTypeIndex, s.browserAgeDays, 1, s.browserSearchFilters);
                 }
                 s.browserStatus = s.apiKeyDisabledReason + "; retrying anonymously...";
                 showBrowser(s);
@@ -1413,8 +1425,8 @@ public final class ServerFinderClient {
                             }));
             y += 24;
             final int secondMenuY = y + 21;
-            int sortWidth = contentWidth / 3 - 4, seenWidth = sortWidth;
-            int reloadWidth = contentWidth - sortWidth - seenWidth - 8;
+            int sortWidth = (contentWidth - 12) / 4, seenWidth = sortWidth;
+            int reloadWidth = sortWidth;
             subButton(s, "Sort: " + SORT_LABELS[s.browserSortIndex], x, y, sortWidth,
                     "Order the API results.", b -> openSubOptionMenu(s, x, secondMenuY, sortWidth,
                             List.of(SORT_LABELS), s.browserSortIndex, selected -> {
@@ -1427,6 +1439,9 @@ public final class ServerFinderClient {
                             }));
             subButton(s, "Reload", x + sortWidth + seenWidth + 8, y, reloadWidth,
                     "Reload the current BreakBlocks page.", b -> requestBrowserPage(s, s.browserPage, true));
+            subButton(s, filtersLabel(), x + sortWidth + seenWidth + reloadWidth + 12, y,
+                    contentWidth - sortWidth - seenWidth - reloadWidth - 12,
+                    "Country, region, MOTD text and modpack filters.", b -> openDetailedFilters(s, true));
             y += 24;
             addSubLabel(s, shorten(s.browserStatus, contentWidth / 6), x, y, contentWidth);
             y += 25;
@@ -1617,6 +1632,90 @@ public final class ServerFinderClient {
         catch (Throwable t) { log("Remove from details failed", t); }
     }
 
+    private static String filtersLabel() {
+        return ToolState.searchFiltersEnabled ? "Filters*" : ToolState.searchFilters.active() ? "Filters (off)" : "Filters";
+    }
+
+    static int detailedFilterRows(OverlayState s) { return Math.max(1, Math.min(4, (s.height - 140) / 26)); }
+
+    private static void openDetailedFilters(OverlayState s, boolean browser) {
+        if (s.loading || s.browserLoading) {
+            if (browser) { s.browserStatus = "Wait for the current request to finish."; showBrowser(s); }
+            else setStatus(s, "Wait for the current request to finish.");
+            return;
+        }
+        s.autoAdd = false;
+        s.autoAddScheduleToken++;
+        Reflection.setButtonText(s.autoButton, autoLabel(s));
+        ServerSearchFilters filters = ToolState.searchFilters;
+        s.filterDraft = new String[]{filters.country(), filters.region(), filters.motd(), filters.modpack()};
+        s.filterReturnBrowser = browser;
+        s.filterPage = 0;
+        s.filterMessage = "Apply selects BreakBlocks. Other sources pause these filters.";
+        showDetailedFilters(s);
+    }
+
+    private static void showDetailedFilters(OverlayState s) {
+        try {
+            clearSubView(s); hideMain(s);
+            int w = Math.min(420, s.width - 12), x = (s.width - w) / 2;
+            int rows = detailedFilterRows(s), pages = (4 + rows - 1) / rows;
+            s.filterPage = Math.max(0, Math.min(s.filterPage, pages - 1));
+            addSubLabel(s, "Detailed Server Filters", x, 35, w - 100);
+            subButton(s, "Back", x + w - 96, 35, 96, "Return without applying draft changes.", b -> returnFromFilters(s));
+            addSubLabel(s, shorten(s.filterMessage, w / 6), x, 59, w);
+            String[] names = {"Country / code", "Region", "MOTD text", "Modpack"};
+            String[] hints = {"Country name, GB or a wildcard such as United*.", "Region such as eu-west or eu-*.",
+                    "Text anywhere in the MOTD; * is supported.", "Modpack name or short name such as ATM9."};
+            for (int slot = 0; slot < rows; slot++) {
+                int index = s.filterPage * rows + slot;
+                if (index >= 4) break;
+                int y = 85 + slot * 26;
+                Object label = addSubLabel(s, names[index], x, y, 108);
+                Reflection.setTooltip(label, hints[index]);
+                net.minecraft.client.gui.components.EditBox box = new net.minecraft.client.gui.components.EditBox(
+                        (net.minecraft.client.gui.Font) Reflection.getField(s.screen, "font"), x + 114, y, w - 114, 20,
+                        net.minecraft.network.chat.Component.literal(names[index]));
+                box.setMaxLength(ServerSearchFilters.MAX_LENGTH);
+                box.setValue(s.filterDraft[index]);
+                box.setResponder(value -> s.filterDraft[index] = value);
+                addSub(s, box);
+            }
+            int half = (w - 6) / 2;
+            subButton(s, "Apply", x, s.height - 52, half, "Save filters and reset the affected search.", b -> applyDetailedFilters(s));
+            subButton(s, "Clear Fields", x + half + 6, s.height - 52, half,
+                    "Blank every field, then press Apply to clear the saved filters.", b -> {
+                        Arrays.fill(s.filterDraft, ""); s.filterMessage = "Press Apply to clear the saved filters."; showDetailedFilters(s);
+                    });
+            Object previous = subButton(s, "< Previous", x, s.height - 28, 90, "Previous fields.", b -> { s.filterPage--; showDetailedFilters(s); });
+            addSubLabel(s, "Page " + (s.filterPage + 1) + "/" + pages, x + 94, s.height - 28, w - 188);
+            Object next = subButton(s, "Next >", x + w - 90, s.height - 28, 90, "Next fields.", b -> { s.filterPage++; showDetailedFilters(s); });
+            Reflection.setBoolean(previous, "active", s.filterPage > 0);
+            Reflection.setBoolean(next, "active", s.filterPage + 1 < pages);
+        } catch (Throwable failure) { log("Could not open detailed filters", failure); returnFromFilters(s); }
+    }
+
+    private static void applyDetailedFilters(OverlayState s) {
+        try {
+            ServerSearchFilters filters = new ServerSearchFilters(s.filterDraft[0], s.filterDraft[1], s.filterDraft[2], s.filterDraft[3]);
+            if (!ToolState.setSearchFilters(filters)) {
+                s.filterMessage = "Could not save filters. Check folder permissions."; showDetailedFilters(s); return;
+            }
+            s.searchFilters = ToolState.activeSearchFilters();
+            s.browserSearchFilters = s.searchFilters;
+            s.sourceIndex = ToolState.finderSourceIndex;
+            Reflection.setButtonText(s.filtersButton, filtersLabel());
+            resetSearchState(s, filters.active() ? "Detailed BreakBlocks filters applied." : "Detailed filters cleared.");
+            if (s.filterReturnBrowser) browserFilterChanged(s);
+            else returnFromFilters(s);
+        } catch (IllegalArgumentException invalid) { s.filterMessage = invalid.getMessage(); showDetailedFilters(s); }
+    }
+
+    private static void returnFromFilters(OverlayState s) {
+        if (s.filterReturnBrowser) showBrowser(s);
+        else { clearSubView(s); showMain(s); }
+    }
+
     private static void showSettings(OverlayState s) {
         try {
             s.apiKeyTestOpen = false;
@@ -1640,7 +1739,7 @@ public final class ServerFinderClient {
             addSubLabel(s, shorten(breakBlocksApiStatusLabel(s), contentWidth / 6), x, y, contentWidth);
             y += 24;
 
-            int rowsPerPage = settingsRowsPerPage(s), pages = (11 + rowsPerPage - 1) / rowsPerPage;
+            int rowsPerPage = settingsRowsPerPage(s), pages = (12 + rowsPerPage - 1) / rowsPerPage;
             s.settingsPage = Math.max(0, Math.min(s.settingsPage, pages - 1));
             for (int slot = 0; slot < rowsPerPage; slot++) {
                 int row = s.settingsPage * rowsPerPage + slot;
@@ -1706,6 +1805,12 @@ public final class ServerFinderClient {
                     case 8 -> addSubLabel(s, "Contribution log: config/zazus-server-seeker/breakblocks-contributions.csv", x, rowY, contentWidth);
                     case 9 -> addSubLabel(s, "Enter your key using the API Key button above.", x, rowY, contentWidth);
                     case 10 -> addSubLabel(s, "config/zazus-server-seeker/server-tool.properties", x, rowY, contentWidth);
+                    case 11 -> subButton(s, "Record Ping Players: " + onOff(ToolState.recordPingPlayers), x, rowY, contentWidth,
+                            "Save sampled player names from normal server pings to local Server Notes. No extra requests.", b -> {
+                                ToolState.recordPingPlayers = !ToolState.recordPingPlayers;
+                                if (!ToolState.recordPingPlayers) ServerPingPlayerCollector.clearPending();
+                                ToolState.save(); showSettings(s);
+                            });
                     default -> { }
                 }
             }
@@ -2152,6 +2257,11 @@ public final class ServerFinderClient {
     private static void selectSource(OverlayState s, int selected) {
         s.sourceIndex = clampIndex(selected, SOURCE_LABELS.length, 0);
         ToolState.finderSourceIndex = s.sourceIndex;
+        if (s.sourceIndex != 2) {
+            ToolState.searchFiltersEnabled = false;
+            s.searchFilters = ServerSearchFilters.EMPTY;
+            Reflection.setButtonText(s.filtersButton, filtersLabel());
+        }
         ToolState.save();
         resetSearchState(s, "Finder source changed to " + sourceLabel(s) + ".");
     }
@@ -2369,6 +2479,11 @@ public final class ServerFinderClient {
         long apiKeyTestToken;
         String apiKeyTestStatus = "Press Retry Check after changing the config key.";
         int settingsPage, finderDetailsPage, browserDetailsPage, recentlyRemovedPage;
+        ServerSearchFilters searchFilters = ServerSearchFilters.EMPTY, browserSearchFilters = ServerSearchFilters.EMPTY;
+        String[] filterDraft = {"", "", "", ""};
+        String filterMessage = "";
+        int filterPage;
+        boolean filterReturnBrowser;
         String browserStatus = "Choose a page to browse.";
         List<ServerRecord> browserResults = List.of();
         int versionIndex, minIndex, maxIndex, sortIndex, serverTypeIndex, sourceIndex, autoAddedThisSession, blockedPage, resultPage, allSourceCursor, contributionPage;
@@ -2381,7 +2496,7 @@ public final class ServerFinderClient {
         boolean confirmClearContributionStats;
         Provider activeProvider;
         List<ServerRecord> results = List.of();
-        Object versionButton, minButton, maxButton, serverTypeButton, findButton, autoButton, resetButton, closeButton, sortButton, settingsButton, blockedButton, browserButton, statusButton;
+        Object filtersButton, versionButton, minButton, maxButton, serverTypeButton, findButton, autoButton, resetButton, closeButton, sortButton, settingsButton, blockedButton, browserButton, statusButton;
         Object previousResultsButton, resultPageButton, nextResultsButton;
         OverlayState(Object client, Object screen, int width, int height) { this.client = client; this.screen = screen; this.width = width; this.height = height; }
     }
@@ -2420,6 +2535,7 @@ public final class ServerFinderClient {
             Object data = createServerData(record.displayName(), record.endpoint());
             addServerData(list, data);
             save(list);
+            ServerPingPlayerCollector.serverAdded(client, record.endpoint());
             ToolState.recordAdded(record.endpoint(), record.version(), record.protocol());
             ServerCategoryStore.markScanned(record.endpoint());
             ServerAuthService.ensureAsync(client, record.endpoint(), record.protocol(), null);
@@ -2436,6 +2552,7 @@ public final class ServerFinderClient {
             Object data = createServerData(record.address(), record.endpoint());
             addServerData(list, data);
             save(list);
+            ServerPingPlayerCollector.serverAdded(client, record.endpoint());
             ServerCategoryStore.syncNew(List.of(record.endpoint()));
             ToolState.recordAdded(record.endpoint(), record.version(), record.protocol());
             return true;

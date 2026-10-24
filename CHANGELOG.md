@@ -1,3 +1,10 @@
+# 1.2.2-rc.5
+
+- Added saved country, region, MOTD and modpack filters to Finder and Browse BreakBlocks.
+- Added automatic local player-history sightings from actual saved-server pings and Finder verification samples.
+- Kept ping sightings separate from connected encounters, with deduplication, name-to-UUID history migration and a recording toggle.
+- Preserved schema-v2 Server Notes, existing notes and previous navigation fixes.
+
 # 1.2.2-rc.4
 
 - Fixed Back from the Multiplayer Settings shortcut returning to Finder instead of Multiplayer.

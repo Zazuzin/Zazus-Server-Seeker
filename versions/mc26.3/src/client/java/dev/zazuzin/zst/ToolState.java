@@ -32,6 +32,9 @@ final class ToolState {
     static int serverTypeIndex = 0;
     static int finderSourceIndex = 0;
     static int breakBlocksMaxAgeDays = 7;
+    static ServerSearchFilters searchFilters = ServerSearchFilters.EMPTY;
+    static boolean searchFiltersEnabled;
+    static boolean recordPingPlayers = true;
     static long addedCount = 0;
     static long deletedCount = 0;
     private static String breakBlocksApiKey = "";
@@ -85,6 +88,9 @@ final class ToolState {
         serverTypeIndex = integer(p, "serverTypeIndex", 0);
         finderSourceIndex = integer(p, "finderSourceIndex", 0);
         breakBlocksMaxAgeDays = normalizeBreakBlocksAge(integer(p, "breakBlocksMaxAgeDays", 7));
+        searchFilters = ServerSearchFilters.read(p);
+        searchFiltersEnabled = bool(p, "detailedFiltersEnabled", false) && searchFilters.active();
+        recordPingPlayers = bool(p, "recordPingPlayers", true);
         addedCount = longValue(p, "addedCount", 0);
         deletedCount = longValue(p, "deletedCount", 0);
         breakBlocksApiKey = normalizeApiKeyValue(p.getProperty("breakBlocksApiKey", ""));
@@ -137,6 +143,9 @@ final class ToolState {
         p.setProperty("finderSourceIndex", String.valueOf(finderSourceIndex));
         breakBlocksMaxAgeDays = normalizeBreakBlocksAge(breakBlocksMaxAgeDays);
         p.setProperty("breakBlocksMaxAgeDays", String.valueOf(breakBlocksMaxAgeDays));
+        searchFilters.write(p);
+        p.setProperty("detailedFiltersEnabled", String.valueOf(searchFiltersEnabled));
+        p.setProperty("recordPingPlayers", String.valueOf(recordPingPlayers));
         p.setProperty("addedCount", String.valueOf(addedCount));
         p.setProperty("deletedCount", String.valueOf(deletedCount));
         p.setProperty("breakBlocksApiKey", breakBlocksApiKey == null ? "" : breakBlocksApiKey.trim());
@@ -145,6 +154,28 @@ final class ToolState {
         p.setProperty("addedVersions", encodeMap(ADDED_VERSIONS));
         p.setProperty("addedProtocols", encodeMap(ADDED_PROTOCOLS));
         writeConfig(p);
+    }
+
+    static synchronized ServerSearchFilters activeSearchFilters() {
+        return searchFiltersEnabled ? searchFilters : ServerSearchFilters.EMPTY;
+    }
+
+    static synchronized boolean setSearchFilters(ServerSearchFilters filters) {
+        Objects.requireNonNull(filters);
+        Properties properties = new Properties();
+        try {
+            if (Files.exists(FILE)) try (BufferedReader reader = Files.newBufferedReader(FILE, StandardCharsets.UTF_8)) {
+                properties.load(reader);
+            }
+        } catch (IOException invalid) { return false; }
+        filters.write(properties);
+        properties.setProperty("detailedFiltersEnabled", String.valueOf(filters.active()));
+        if (filters.active()) properties.setProperty("finderSourceIndex", "2");
+        if (!writeConfig(properties)) return false;
+        searchFilters = filters;
+        searchFiltersEnabled = filters.active();
+        if (filters.active()) finderSourceIndex = 2;
+        return true;
     }
 
     private static boolean writeConfig(Properties properties) {

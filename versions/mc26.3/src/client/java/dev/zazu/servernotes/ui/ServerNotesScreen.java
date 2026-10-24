@@ -158,7 +158,7 @@ public final class ServerNotesScreen extends BaseServerScreen {
 
             if (players.isEmpty()) {
                 centered(graphics, "No players recorded yet.", 76, 0xFFAAAAAA);
-                centered(graphics, "Players are added automatically while connected.", 90, 0xFF888888);
+                centered(graphics, "Names are recorded while connected or reported by pings.", 90, 0xFF888888);
                 return;
             }
 
@@ -171,7 +171,8 @@ public final class ServerNotesScreen extends BaseServerScreen {
                 int y = 54 + (i - start) * 25;
                 graphics.text(font, trim(record.username(), 28), left, y, 0xFFFFFFFF, true);
                 graphics.text(font,
-                    "First: " + TimeUtil.display(record.firstSeenAt()) + "  Seen: " + record.encounters(),
+                    "Last: " + TimeUtil.display(record.lastSeenAt()) + "  Encounters: " + record.encounters()
+                        + "  Pings: " + record.pingSightings(),
                     left, y + 11, 0xFF999999, true);
             }
             centered(graphics, "Page " + (playerPage + 1) + " / " + pages, height - 68, 0xFF888888);
