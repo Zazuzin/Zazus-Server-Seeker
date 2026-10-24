@@ -101,7 +101,7 @@ final class BreakBlocksPlayers {
                 for (Object item : connected.subList(0, Math.min(connected.size(), MAX_RECORDS))) {
                     Map<?, ?> server = object(item);
                     String address = text(server.get("address")).trim();
-                    int port = number(server.get("port"), 25565);
+                    int port = server.containsKey("port") ? number(server.get("port"), -1) : 25565;
                     if (address.isBlank() || address.length() > 253 || address.chars().anyMatch(Character::isWhitespace)
                             || address.contains("/") || port < 1 || port > 65535) continue;
                     Server entry = new Server(address, port, text(server.get("name")));
@@ -121,6 +121,11 @@ final class BreakBlocksPlayers {
     private static Map<?, ?> object(Object value) { return value instanceof Map<?, ?> map ? map : Map.of(); }
     private static String text(Object value) { return value == null ? "" : String.valueOf(value); }
     private static int number(Object value, int fallback) {
+        if (value instanceof Number numeric) {
+            double raw = numeric.doubleValue();
+            return Double.isFinite(raw) && raw == Math.rint(raw) && raw >= Integer.MIN_VALUE && raw <= Integer.MAX_VALUE
+                    ? (int) raw : fallback;
+        }
         try { return value == null ? fallback : Integer.parseInt(value.toString()); }
         catch (NumberFormatException ignored) { return fallback; }
     }

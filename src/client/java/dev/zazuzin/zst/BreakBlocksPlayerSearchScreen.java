@@ -58,7 +58,7 @@ final class BreakBlocksPlayerSearchScreen extends Screen {
         button("Join VIP on Patreon", x, height - 76, half, () -> openExternal(BreakBlocksPlayers.PATREON_URL, false));
         button("BreakBlocks Account", x + half + 6, height - 76, half, () -> openExternal(BreakBlocksPlayers.ACCOUNT_URL, false));
         button("Open API Key Config", x, height - 52, half, () -> {
-            ToolState.save();
+            if (!java.nio.file.Files.exists(ToolState.configFile())) ToolState.save();
             openExternal(ToolState.configFile().toAbsolutePath().toString(), true);
         });
         Button check = button(loading ? "Checking..." : "Check Access", x + half + 6, height - 52, half, this::checkAccess);
