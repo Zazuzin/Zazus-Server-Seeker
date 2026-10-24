@@ -1,3 +1,11 @@
+# 1.2.2-rc.1
+
+- Added VIP Treatment player search by exact name, partial name and UUID on Multiplayer.
+- Added a membership notice with Patreon, account, config and access-check buttons.
+- Displayed historical name/server records with Copy UUID, Copy IP and explicit Add to Servers actions.
+- Reused the configured key and shared request budget; denied access never falls back to anonymous player searches.
+- Kept search results in memory and cancelled requests when closing the screen.
+
 # 1.2.1
 
 - Added an on-demand BreakBlocks browser to the Multiplayer screen with page navigation, filters, details and Add controls.

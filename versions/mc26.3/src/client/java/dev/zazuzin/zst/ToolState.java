@@ -217,6 +217,8 @@ final class ToolState {
         return normalizeApiKeyValue(breakBlocksApiKey);
     }
 
+    static Path configFile() { return FILE; }
+
     static String normalizeApiKeyValue(String value) {
         String key = value == null ? "" : value.trim();
         if (key.length() >= 2 && ((key.startsWith("\"") && key.endsWith("\""))
