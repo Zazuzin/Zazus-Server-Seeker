@@ -12,6 +12,12 @@ Zazu's Server Seeker is a client-side Fabric mod for Minecraft Java Edition 26.2
 - [Issues](https://github.com/Zazuzin/Zazus-Server-Seeker/issues)
 - [Discord support](https://breakblocks.com/discord)
 
+## Development build: 1.2.2-rc.4
+
+Player Search is available from Multiplayer in this test build. It requires a BreakBlocks API key whose account is confirmed as **VIP Treatment**. Exact-name, partial-name and UUID searches show recorded names and associated servers. These are historical sightings and do not prove that a player is currently online on a listed server. Results are kept only for the open search session; servers are saved only when you choose Add.
+
+Users without confirmed VIP access see a membership notice with [Join VIP on Patreon](https://www.patreon.com/c/BreakBlocks), BreakBlocks Account, API Key Settings and Check Access controls. Link Patreon to your BreakBlocks account and configure your own API key using **Multiplayer → Settings → API Key** (or **Finder → Settings → API Key**). The Multiplayer Settings shortcut sits beside Zazu’s Server Seeker and opens preferences directly without starting a scan. Back returns to the menu you opened settings from, including after editing the API key. The editor hides the key by default and includes Save, Save & Test, Clear Key and Show/Hide controls. Changes take effect without restarting Minecraft. Access is checked again when opening Player Search; invalid keys, denied permissions and rate limits do not fall back to public player searches.
+
 ## Features
 
 - Finds servers through BreakBlocks, Cornbread and MineScan.

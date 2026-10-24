@@ -1688,6 +1688,22 @@ public final class ServerList {
     public void remove(ServerData data) { servers.remove(data); }
 }
 JAVA
+# The navigation action uses Fabric's live widget-list adapter. Supply that
+# adapter only in the headless test fixture; the mod itself was compiled above
+# against the real Minecraft and Fabric APIs.
+mkdir -p "$RUNTIME_TEST_DIR/net/fabricmc/fabric/api/client/screen/v1"
+cat > "$RUNTIME_TEST_DIR/net/fabricmc/fabric/api/client/screen/v1/Screens.java" <<'JAVA'
+package net.fabricmc.fabric.api.client.screen.v1;
+import java.util.List;
+public final class Screens {
+    @SuppressWarnings("unchecked")
+    public static List<Object> getWidgets(Object screen) throws ReflectiveOperationException {
+        var field = screen.getClass().getDeclaredField("children");
+        field.setAccessible(true);
+        return (List<Object>) field.get(screen);
+    }
+}
+JAVA
 cat > "$RUNTIME_TEST_DIR/dev/zazuzin/zst/RuntimeRegressionTest.java" <<'JAVA'
 package dev.zazuzin.zst;
 
@@ -1700,6 +1716,8 @@ public final class RuntimeRegressionTest {
         final List<Object> children = new ArrayList<>();
         final List<Object> renderables = new ArrayList<>();
         final List<Object> narratables = new ArrayList<>();
+        int refreshes;
+        public void refreshServerList() { refreshes++; }
         final ServerList servers = new ServerList();
         final FakeListWidget serverSelectionList = new FakeListWidget();
         public void removeWidget(Object widget) { children.remove(widget); }
@@ -1721,6 +1739,37 @@ public final class RuntimeRegressionTest {
         Reflection.removeWidget(screen, ghost);
         if (screen.children.contains(ghost) || screen.renderables.contains(ghost) || screen.narratables.contains(ghost)) {
             throw new AssertionError("removeWidget left a ghost widget in a Screen list");
+        }
+
+        // Exercise the real Back action with each entry point, including widget
+        // restoration and closing the overlay instead of merely revealing Finder.
+        FakeScreen hub = new FakeScreen();
+        FakeWidget hubButton = new FakeWidget(), finderButton = new FakeWidget(), settingsButton = new FakeWidget();
+        hubButton.visible = false; hubButton.active = false;
+        hub.children.addAll(List.of(hubButton, finderButton, settingsButton));
+        ServerFinderClient.OverlayState hubSettings = new ServerFinderClient.OverlayState(null, hub, 412, 258);
+        hubSettings.open = true; hubSettings.autoAdd = true;
+        hubSettings.mainVisible = false; hubSettings.settingsReturnToMultiplayer = true;
+        hubSettings.originalStates.put(hubButton, new ServerFinderClient.WidgetState(true, true));
+        hubSettings.widgets.add(finderButton); hubSettings.subWidgets.add(settingsButton);
+        ServerFinderClient.backFromSettings(hubSettings);
+        if (hubSettings.open || hubSettings.autoAdd || !hubButton.visible || !hubButton.active
+                || hub.children.contains(finderButton) || hub.children.contains(settingsButton) || hub.refreshes != 1) {
+            throw new AssertionError("Multiplayer Settings Back did not restore the Multiplayer menu");
+        }
+
+        FakeScreen finderScreen = new FakeScreen();
+        FakeWidget finderControl = new FakeWidget(), preferenceControl = new FakeWidget();
+        finderControl.visible = false;
+        finderScreen.children.addAll(List.of(finderControl, preferenceControl));
+        ServerFinderClient.OverlayState finderSettings = new ServerFinderClient.OverlayState(null, finderScreen, 412, 258);
+        finderSettings.open = true; finderSettings.mainVisible = false;
+        finderSettings.widgets.add(finderControl); finderSettings.subWidgets.add(preferenceControl);
+        ServerFinderClient.backFromSettings(finderSettings);
+        if (!finderSettings.open || !finderSettings.mainVisible || !finderControl.visible
+                || !finderScreen.children.contains(finderControl) || finderScreen.children.contains(preferenceControl)
+                || finderScreen.refreshes != 0) {
+            throw new AssertionError("Finder Settings Back did not preserve the Finder menu");
         }
 
         ServerData sourceCopy = new ServerData("★ Pause Favourite", "favourite.example:25565");
@@ -1803,6 +1852,7 @@ public final class RuntimeRegressionTest {
         }
     }
 
+    static final class FakeWidget { public boolean visible = true, active = true; }
     static final class FakeMouseEvent {}
     static final class FakeClickable {
         boolean clicked;
@@ -1810,7 +1860,7 @@ public final class RuntimeRegressionTest {
     }
 }
 JAVA
-javac --release 25 -cp "$JAR" -d "$RUNTIME_TEST_DIR"   "$RUNTIME_TEST_DIR/net/fabricmc/api/ClientModInitializer.java"   "$RUNTIME_TEST_DIR/net/minecraft/client/multiplayer/ServerData.java"   "$RUNTIME_TEST_DIR/net/minecraft/client/multiplayer/ServerList.java"   "$RUNTIME_TEST_DIR/dev/zazuzin/zst/RuntimeRegressionTest.java"
+javac --release 25 -cp "$JAR" -d "$RUNTIME_TEST_DIR"   "$RUNTIME_TEST_DIR/net/fabricmc/api/ClientModInitializer.java"   "$RUNTIME_TEST_DIR/net/fabricmc/fabric/api/client/screen/v1/Screens.java"   "$RUNTIME_TEST_DIR/net/minecraft/client/multiplayer/ServerData.java"   "$RUNTIME_TEST_DIR/net/minecraft/client/multiplayer/ServerList.java"   "$RUNTIME_TEST_DIR/dev/zazuzin/zst/RuntimeRegressionTest.java"
 java -Duser.dir="$RUNTIME_TEST_DIR" -cp "$JAR:$RUNTIME_TEST_DIR" dev.zazuzin.zst.RuntimeRegressionTest
 rm -rf "$RUNTIME_TEST_DIR"
 echo "Widget-removal and persisted whitelist-deletion regression tests passed."

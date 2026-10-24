@@ -72,10 +72,19 @@ public final class ServerFinderClient {
         openOverlay(client, screen, width, height, true);
     }
 
+    static void openSettingsOverlay(Object client, Object screen, int width, int height) throws Exception {
+        openOverlay(client, screen, width, height, false, true);
+    }
+
     private static void openOverlay(Object client, Object screen, int width, int height, boolean browse) throws Exception {
+        openOverlay(client, screen, width, height, browse, false);
+    }
+
+    private static void openOverlay(Object client, Object screen, int width, int height, boolean browse, boolean preferences) throws Exception {
         OverlayState old = STATES.get(screen);
         if (old != null && old.open) {
-            if (browse && !old.browserOpen) openBrowser(old);
+            if (preferences) showSettings(old);
+            else if (browse && !old.browserOpen) openBrowser(old);
             return;
         }
 
@@ -88,7 +97,8 @@ public final class ServerFinderClient {
         state.sortIndex = clampIndex(ToolState.sortIndex, SORT_LABELS.length, 0);
         state.serverTypeIndex = clampIndex(ToolState.serverTypeIndex, SERVER_TYPE_LABELS.length, 0);
         state.sourceIndex = clampIndex(ToolState.finderSourceIndex, SOURCE_LABELS.length, 0);
-        state.autoAdd = !browse && ToolState.autoAddDefault && !ToolState.quickSearch;
+        state.settingsReturnToMultiplayer = preferences;
+        state.autoAdd = !browse && !preferences && ToolState.autoAddDefault && !ToolState.quickSearch;
         state.open = true;
         STATES.put(screen, state);
 
@@ -100,7 +110,8 @@ public final class ServerFinderClient {
             Reflection.setBoolean(widget, "active", false);
         }
         buildOverlay(state);
-        if (browse) openBrowser(state);
+        if (preferences) showSettings(state);
+        else if (browse) openBrowser(state);
         else if (state.autoAdd) {
             state.autoAddedThisSession = 0;
             scheduleNextAutoAddBatch(state, 0L, false, "Auto-add starting…");
@@ -1615,10 +1626,14 @@ public final class ServerFinderClient {
             int rightWidth = contentWidth - leftWidth - 10, y = 35;
             addSubLabel(s, "Zazu's Server Seeker Settings", x, y, contentWidth - 110);
             subButton(s, "Back", x + contentWidth - 100, y, 100,
-                    "Return to the Server Finder results.", b -> { clearSubView(s); showMain(s); refreshStats(s); }); y += 24;
+                    s.settingsReturnToMultiplayer ? "Return to Multiplayer." : "Return to the Server Finder results.",
+                    b -> backFromSettings(s)); y += 24;
             addSubLabel(s, "Build: " + ReleaseInfo.VERSION + "   Minecraft: " + ReleaseInfo.MINECRAFT_VERSION, x, y, leftWidth);
-            subButton(s, "Test API Key", rightX, y, rightWidth,
-                    "Check BreakBlocks using your configured key. The key stays hidden.", b -> {
+            int keyEditWidth = (rightWidth - 4) / 2;
+            subButton(s, "API Key", rightX, y, keyEditWidth,
+                    "Enter, save or clear the BreakBlocks key used by every Server Seeker feature.", b -> openApiKeyEditor(s));
+            subButton(s, "Test API Key", rightX + keyEditWidth + 4, y, rightWidth - keyEditWidth - 4,
+                    "Test the saved key used by the scanner, browser and player search.", b -> {
                         startApiKeyTest(s); showApiKeyTest(s);
                     }); y += 24;
             refreshConfiguredApiKey(s);
@@ -1689,7 +1704,7 @@ public final class ServerFinderClient {
                                 "View the BreakBlocks queue, allowance and log tools.", b -> showContributionStats(s));
                     }
                     case 8 -> addSubLabel(s, "Contribution log: config/zazus-server-seeker/breakblocks-contributions.csv", x, rowY, contentWidth);
-                    case 9 -> addSubLabel(s, "Config key: breakBlocksApiKey=...", x, rowY, contentWidth);
+                    case 9 -> addSubLabel(s, "Enter your key using the API Key button above.", x, rowY, contentWidth);
                     case 10 -> addSubLabel(s, "config/zazus-server-seeker/server-tool.properties", x, rowY, contentWidth);
                     default -> { }
                 }
@@ -1705,8 +1720,40 @@ public final class ServerFinderClient {
         } catch (Throwable t) { log("Could not open settings", t); clearSubView(s); showMain(s); }
     }
 
+    static void backFromSettings(OverlayState s) {
+        if (s.settingsReturnToMultiplayer) {
+            closeOverlay(s);
+        } else {
+            clearSubView(s);
+            showMain(s);
+            refreshStats(s);
+        }
+    }
+
     static int settingsRowsPerPage(OverlayState s) {
         return Math.max(1, Math.min(5, (s.height - 142) / 28));
+    }
+
+    private static void openApiKeyEditor(OverlayState s) {
+        Object client = s.client;
+        Object parent = s.screen;
+        int page = s.settingsPage;
+        boolean returnToMultiplayer = s.settingsReturnToMultiplayer;
+        closeOverlay(s);
+        try {
+            ScreenCompat.setScreen(client, new BreakBlocksApiKeyScreen((net.minecraft.client.gui.screens.Screen) parent, () -> {
+                try {
+                    openOverlay(client, parent, RuntimeAccess.intField(parent, "width", s.width),
+                            RuntimeAccess.intField(parent, "height", s.height), false, true);
+                    OverlayState resumed = STATES.get(parent);
+                    if (resumed != null) {
+                        resumed.settingsPage = page;
+                        resumed.settingsReturnToMultiplayer = returnToMultiplayer;
+                        showSettings(resumed);
+                    }
+                } catch (Throwable error) { log("Could not return to API key settings", error); }
+            }));
+        } catch (Throwable error) { log("Could not open API key settings", error); }
     }
 
     private static void showApiKeyTest(OverlayState s) {
@@ -2312,7 +2359,7 @@ public final class ServerFinderClient {
         final EnumMap<Provider, Integer> providerDuplicateOnlyStreaks = new EnumMap<>(Provider.class);
         final EnumSet<Provider> disabledProviders = EnumSet.noneOf(Provider.class);
         boolean open, loading, autoAdd, exhausted, apiKeyDisabledForSession, apiKeyAcceptedThisSession, apiKeyCheckedThisSession, apiKeyResponseWithoutAuthStatus, breakBlocksPaidTier;
-        boolean mainVisible = true, apiKeyTestOpen;
+        boolean mainVisible = true, apiKeyTestOpen, settingsReturnToMultiplayer;
         String lastConfiguredApiKey, apiKeyDisabledReason = "";
         boolean browserOpen, browserLoading, browserPaidTier;
         int browserVersionIndex, browserMinIndex, browserMaxIndex, browserSortIndex, browserTypeIndex, browserAgeDays;

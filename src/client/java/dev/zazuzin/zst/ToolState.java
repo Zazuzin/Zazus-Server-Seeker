@@ -143,14 +143,28 @@ final class ToolState {
         p.setProperty("blocked", encodeSet(BLOCKED));
         p.setProperty("addedVersions", encodeMap(ADDED_VERSIONS));
         p.setProperty("addedProtocols", encodeMap(ADDED_PROTOCOLS));
+        writeConfig(p);
+    }
+
+    private static boolean writeConfig(Properties properties) {
+        Path temporary = null;
         try {
             Files.createDirectories(CONFIG_DIR);
-            try (BufferedWriter writer = Files.newBufferedWriter(FILE, StandardCharsets.UTF_8)) {
-                p.store(writer, "Zazu's Server Seeker");
+            temporary = Files.createTempFile(CONFIG_DIR, "server-tool-", ".tmp");
+            try (BufferedWriter writer = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
+                properties.store(writer, "Zazu's Server Seeker");
+            }
+            try { Files.move(temporary, FILE, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING); }
+            catch (AtomicMoveNotSupportedException unsupported) {
+                Files.move(temporary, FILE, StandardCopyOption.REPLACE_EXISTING);
             }
             restrictConfigPermissions();
+            return true;
         } catch (Exception ex) {
-            System.err.println("[Zazu's Server Seeker] Could not save settings: " + ex);
+            System.err.println("[Zazu's Server Seeker] Could not save settings: " + ex.getClass().getSimpleName());
+            return false;
+        } finally {
+            if (temporary != null) try { Files.deleteIfExists(temporary); } catch (IOException ignored) { }
         }
     }
 
@@ -214,6 +228,29 @@ final class ToolState {
 
     static synchronized String breakBlocksApiKey() {
         return normalizeApiKeyValue(breakBlocksApiKey);
+    }
+
+    static Path configFile() { return FILE; }
+
+    /** Explicit key edits must replace the on-disk key instead of save() reloading it. */
+    static synchronized boolean setBreakBlocksApiKey(String value) {
+        String normalized = normalizeApiKeyValue(value);
+        if (normalized.length() > 512 || normalized.chars().anyMatch(c -> c < 33 || c > 126)) {
+            throw new IllegalArgumentException("Use the API key only, without spaces or line breaks.");
+        }
+        Properties properties = new Properties();
+        try {
+            if (!Files.exists(FILE)) save();
+            try (BufferedReader reader = Files.newBufferedReader(FILE, StandardCharsets.UTF_8)) { properties.load(reader); }
+        } catch (Exception error) {
+            System.err.println("[Zazu's Server Seeker] Could not read settings for key edit: " + error.getClass().getSimpleName());
+            return false;
+        }
+        properties.setProperty("breakBlocksApiKey", normalized);
+        if (!writeConfig(properties)) return false;
+        breakBlocksApiKey = normalized;
+        BreakBlocksAccount.configure(normalized);
+        return true;
     }
 
     static String normalizeApiKeyValue(String value) {

@@ -1,3 +1,30 @@
+# 1.2.2-rc.4
+
+- Fixed Back from the Multiplayer Settings shortcut returning to Finder instead of Multiplayer.
+- Preserved the original return menu after visiting API Key, API testing and settings submenus.
+- Added regression coverage for both Multiplayer and Finder return paths.
+
+# 1.2.2-rc.3
+
+- Added a Settings shortcut beside Zazu's Server Seeker on the Multiplayer hub.
+- Opens the full settings view, including API Key and Test API Key, without starting a scan.
+- Keeps the shortcut fitted and removes it with the other hub controls when opening a category or tool view.
+
+# 1.2.2-rc.2
+
+- Added a masked in-game API-key editor under Finder Settings and the Player Search membership notice.
+- Added Save, Save & Test, Clear Key and Show/Hide controls using the existing per-instance config.
+- Preserved manual config edits and unrelated settings while saving key edits atomically.
+- Cancelled stale checks and reset old authentication when the saved key changes.
+
+# 1.2.2-rc.1
+
+- Added VIP Treatment player search by exact name, partial name and UUID on Multiplayer.
+- Added a membership notice with Patreon, account, config and access-check buttons.
+- Displayed historical name/server records with Copy UUID, Copy IP and explicit Add to Servers actions.
+- Reused the configured key and shared request budget; denied access never falls back to anonymous player searches.
+- Kept search results in memory and cancelled requests when closing the screen.
+
 # 1.2.1
 
 - Added an on-demand BreakBlocks browser to the Multiplayer screen with page navigation, filters, details and Add controls.
