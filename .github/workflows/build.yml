@@ -37,7 +37,7 @@ jobs:
         run: |
           python3 - <<'PYAPI'
           import os, pathlib, zipfile, subprocess
-          paths=subprocess.check_output(['rg','--files',os.environ['GRADLE_USER_HOME']+'/caches','-g','*.jar'],text=True).splitlines()
+          paths=[str(p) for p in pathlib.Path(os.environ['GRADLE_USER_HOME']).joinpath('caches').rglob('*.jar')]
           found=0
           for path in paths:
               try:
