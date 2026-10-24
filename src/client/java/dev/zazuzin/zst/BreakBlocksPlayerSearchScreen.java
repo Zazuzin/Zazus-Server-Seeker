@@ -40,6 +40,7 @@ final class BreakBlocksPlayerSearchScreen extends Screen {
 
     @Override
     protected void init() {
+        if (closed) { closed = false; started = false; }
         if (!started) { started = true; checkAccess(); return; }
         lines.clear();
         int w = Math.min(480, width - 24), x = (width - w) / 2;
@@ -57,10 +58,7 @@ final class BreakBlocksPlayerSearchScreen extends Screen {
         int half = (w - 6) / 2;
         button("Join VIP on Patreon", x, height - 76, half, () -> openExternal(BreakBlocksPlayers.PATREON_URL, false));
         button("BreakBlocks Account", x + half + 6, height - 76, half, () -> openExternal(BreakBlocksPlayers.ACCOUNT_URL, false));
-        button("Open API Key Config", x, height - 52, half, () -> {
-            if (!java.nio.file.Files.exists(ToolState.configFile())) ToolState.save();
-            openExternal(ToolState.configFile().toAbsolutePath().toString(), true);
-        });
+        button("API Key Settings", x, height - 52, half, () -> minecraft.gui.setScreen(new BreakBlocksApiKeyScreen(this)));
         Button check = button(loading ? "Checking..." : "Check Access", x + half + 6, height - 52, half, this::checkAccess);
         check.active = !loading;
     }
@@ -152,7 +150,7 @@ final class BreakBlocksPlayerSearchScreen extends Screen {
     private void checkAccess() {
         access = null; verifiedKey = ""; players = List.of(); selected = null; view = View.NOTICE;
         String key = currentKey();
-        if (key.isBlank()) { loading = false; status = "No API key configured. Add your key, then choose Check Access."; redraw(); return; }
+        if (key.isBlank()) { loading = false; status = "No API key configured. Open API Key Settings, then choose Check Access."; redraw(); return; }
         send(ServerFinderClient.buildBreakBlocksRequest(BreakBlocksPlayers.ACCESS_URI, key), key, true);
     }
 
