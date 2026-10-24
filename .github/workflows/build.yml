@@ -33,6 +33,10 @@ jobs:
         with:
           gradle-version: "9.5.1"
 
+      - name: Test VIP player-search protocol and access boundaries
+        working-directory: ${{ matrix.path }}
+        run: bash tools/test_player_search.sh
+
       - name: Build verified JAR
         working-directory: ${{ matrix.path }}
         run: ./build.sh
