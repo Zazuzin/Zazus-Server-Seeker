@@ -1720,11 +1720,11 @@ public final class ServerFinderClient {
 
     private static void openApiKeyEditor(OverlayState s) {
         Object client = s.client;
-        net.minecraft.client.gui.screens.Screen parent = (net.minecraft.client.gui.screens.Screen) s.screen;
+        Object parent = s.screen;
         int page = s.settingsPage;
         closeOverlay(s);
         try {
-            ScreenCompat.setScreen(client, new BreakBlocksApiKeyScreen(parent, () -> {
+            ScreenCompat.setScreen(client, new BreakBlocksApiKeyScreen((net.minecraft.client.gui.screens.Screen) parent, () -> {
                 try {
                     openOverlay(client, parent, RuntimeAccess.intField(parent, "width", s.width),
                             RuntimeAccess.intField(parent, "height", s.height), false, true);
