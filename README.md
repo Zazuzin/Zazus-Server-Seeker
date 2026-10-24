@@ -1,6 +1,6 @@
 # Zazu's Server Seeker
 
-[![Downloads](docs/downloads.svg)](https://github.com/Zazuzin/Zazus-Server-Seeker/releases)
+[![Downloads](https://img.shields.io/github/downloads/Zazuzin/Zazus-Server-Seeker/total?label=Downloads&color=7c3aed)](https://github.com/Zazuzin/Zazus-Server-Seeker/releases)
 
 ![Zazu's Server Seeker logo](src/main/resources/assets/zazus-server-tool/icon.png)
 
