@@ -72,6 +72,10 @@ public final class ServerFinderClient {
         openOverlay(client, screen, width, height, true);
     }
 
+    static void openSettingsOverlay(Object client, Object screen, int width, int height) throws Exception {
+        openOverlay(client, screen, width, height, false, true);
+    }
+
     private static void openOverlay(Object client, Object screen, int width, int height, boolean browse) throws Exception {
         openOverlay(client, screen, width, height, browse, false);
     }

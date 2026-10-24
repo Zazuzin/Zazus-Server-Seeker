@@ -1,3 +1,9 @@
+# 1.2.2-rc.3
+
+- Added a Settings shortcut beside Zazu's Server Seeker on the Multiplayer hub.
+- Opens the full settings view, including API Key and Test API Key, without starting a scan.
+- Keeps the shortcut fitted and removes it with the other hub controls when opening a category or tool view.
+
 # 1.2.2-rc.2
 
 - Added a masked in-game API-key editor under Finder Settings and the Player Search membership notice.

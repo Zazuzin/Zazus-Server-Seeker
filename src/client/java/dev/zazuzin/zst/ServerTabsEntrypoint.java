@@ -335,6 +335,9 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         state.recentButton = makeButton("Recent Servers", x, startY + gap * 3, buttonWidth, 20,
                 b -> openCategoryScreen(state, ServerCategoryStore.Tab.RECENT));
         int browseWidth = (buttonWidth - 4) * 3 / 5;
+        state.settingsButton = makeButton("Settings", x + browseWidth + 4, startY + gap * 4,
+                buttonWidth - browseWidth - 4, 20, b -> openSettings(state));
+        Reflection.setTooltip(state.settingsButton, "Open Server Seeker settings, API key and API test.");
         state.browseButton = makeButton("Browse BreakBlocks", x, startY + gap * 5, browseWidth, 20,
                 b -> openBreakBlocksBrowser(state));
         state.playerSearchButton = makeButton("Player Search", x + browseWidth + 4, startY + gap * 5,
@@ -371,11 +374,12 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
                 b -> refreshCategoryInPlace(state));
 
         rememberOwned(state.favouritesButton, state.serversButton, state.scannedButton, state.recentButton,
-                state.categoryRefreshButton, state.browseButton, state.playerSearchButton);
+                state.categoryRefreshButton, state.browseButton, state.playerSearchButton, state.settingsButton);
         Reflection.addWidget(state.screen, state.favouritesButton);
         Reflection.addWidget(state.screen, state.serversButton);
         Reflection.addWidget(state.screen, state.scannedButton);
         Reflection.addWidget(state.screen, state.recentButton);
+        Reflection.addWidget(state.screen, state.settingsButton);
         Reflection.addWidget(state.screen, state.browseButton);
         Reflection.addWidget(state.screen, state.playerSearchButton);
         Reflection.addWidget(state.screen, state.categoryRefreshButton);
@@ -523,6 +527,14 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
             ServerFinderClient.openBrowserOverlay(state.client, state.screen, state.width, state.height);
         } catch (Throwable t) {
             System.err.println("[Zazu's Server Seeker] Could not open BreakBlocks browser: " + root(t));
+        }
+    }
+
+    private static void openSettings(State state) {
+        try {
+            ServerFinderClient.openSettingsOverlay(state.client, state.screen, state.width, state.height);
+        } catch (Throwable error) {
+            System.err.println("[Zazu's Server Seeker] Could not open settings: " + root(error));
         }
     }
 
@@ -674,6 +686,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
                 setVisibleActive(state.autoJoinButton, false, false);
                 setVisibleActive(state.browseButton, false, false);
                 setVisibleActive(state.playerSearchButton, false, false);
+                setVisibleActive(state.settingsButton, false, false);
             }
             return;
         }
@@ -936,6 +949,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         setVisibleActive(state.recentButton, hub, hub);
         setVisibleActive(state.browseButton, hub, hub);
         setVisibleActive(state.playerSearchButton, hub, hub);
+        setVisibleActive(state.settingsButton, hub, hub);
         setVisibleActive(state.categoryRefreshButton, !hub, !hub);
         setVisibleActive(tool, true, true);
 
@@ -1029,7 +1043,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         if (state == null) return;
         for (Object widget : Arrays.asList(
                 state.favouritesButton, state.serversButton, state.scannedButton, state.recentButton,
-                state.categoryRefreshButton, state.autoJoinButton, state.browseButton, state.playerSearchButton)) {
+                state.categoryRefreshButton, state.autoJoinButton, state.browseButton, state.playerSearchButton, state.settingsButton)) {
             setVisibleActive(widget, false, false);
             Reflection.removeWidget(state.screen, widget);
         }
@@ -1099,8 +1113,9 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         setBounds(state.serversButton, x, startY + gap, buttonWidth, 20);
         setBounds(state.scannedButton, x, startY + gap * 2, buttonWidth, 20);
         setBounds(state.recentButton, x, startY + gap * 3, buttonWidth, 20);
-        if (tool != null) setBounds(tool, x, startY + gap * 4, buttonWidth, 20);
         int browseWidth = (buttonWidth - 4) * 3 / 5;
+        if (tool != null) setBounds(tool, x, startY + gap * 4, browseWidth, 20);
+        setBounds(state.settingsButton, x + browseWidth + 4, startY + gap * 4, buttonWidth - browseWidth - 4, 20);
         setBounds(state.browseButton, x, startY + gap * 5, browseWidth, 20);
         setBounds(state.playerSearchButton, x + browseWidth + 4, startY + gap * 5, buttonWidth - browseWidth - 4, 20);
     }
@@ -1405,7 +1420,8 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
     private static boolean isCustom(State state, Object widget) {
         return widget == state.favouritesButton || widget == state.serversButton || widget == state.scannedButton
                 || widget == state.recentButton || widget == state.autoJoinButton
-                || widget == state.categoryRefreshButton || widget == state.browseButton || widget == state.playerSearchButton;
+                || widget == state.categoryRefreshButton || widget == state.browseButton || widget == state.playerSearchButton
+                || widget == state.settingsButton;
     }
 
     private static ServerCategoryStore.Tab tabForView(View view) {
@@ -1643,7 +1659,7 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         final Map<Object, Bounds> originalBounds = new IdentityHashMap<>();
         Bounds nativeRefreshBounds, nativeBackBounds, nativeDeleteBounds;
         Object listWidget;
-        Object favouritesButton, serversButton, scannedButton, recentButton, categoryRefreshButton, browseButton, playerSearchButton;
+        Object favouritesButton, serversButton, scannedButton, recentButton, categoryRefreshButton, browseButton, playerSearchButton, settingsButton;
         Object autoJoinButton;
         List<ServerListAccess.Saved> saved = List.of();
         String lastSignature = "";
