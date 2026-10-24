@@ -46,6 +46,7 @@ jobs:
                   if present:
                       print('EDITBOX API:',path,flush=True)
                       subprocess.run(['javap','-p','-classpath',path,'net.minecraft.client.gui.components.EditBox'],check=True)
+                      subprocess.run(['javap','-p','-classpath',path,'net.minecraft.client.gui.components.EditBox$TextFormatter'],check=True)
                       found+=1
                       if found>=2: break
               except zipfile.BadZipFile:
