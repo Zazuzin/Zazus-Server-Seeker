@@ -97,6 +97,7 @@ public final class ServerFinderClient {
         state.sortIndex = clampIndex(ToolState.sortIndex, SORT_LABELS.length, 0);
         state.serverTypeIndex = clampIndex(ToolState.serverTypeIndex, SERVER_TYPE_LABELS.length, 0);
         state.sourceIndex = clampIndex(ToolState.finderSourceIndex, SOURCE_LABELS.length, 0);
+        state.settingsReturnToMultiplayer = preferences;
         state.autoAdd = !browse && !preferences && ToolState.autoAddDefault && !ToolState.quickSearch;
         state.open = true;
         STATES.put(screen, state);
@@ -1625,7 +1626,8 @@ public final class ServerFinderClient {
             int rightWidth = contentWidth - leftWidth - 10, y = 35;
             addSubLabel(s, "Zazu's Server Seeker Settings", x, y, contentWidth - 110);
             subButton(s, "Back", x + contentWidth - 100, y, 100,
-                    "Return to the Server Finder results.", b -> { clearSubView(s); showMain(s); refreshStats(s); }); y += 24;
+                    s.settingsReturnToMultiplayer ? "Return to Multiplayer." : "Return to the Server Finder results.",
+                    b -> backFromSettings(s)); y += 24;
             addSubLabel(s, "Build: " + ReleaseInfo.VERSION + "   Minecraft: " + ReleaseInfo.MINECRAFT_VERSION, x, y, leftWidth);
             int keyEditWidth = (rightWidth - 4) / 2;
             subButton(s, "API Key", rightX, y, keyEditWidth,
@@ -1718,6 +1720,16 @@ public final class ServerFinderClient {
         } catch (Throwable t) { log("Could not open settings", t); clearSubView(s); showMain(s); }
     }
 
+    static void backFromSettings(OverlayState s) {
+        if (s.settingsReturnToMultiplayer) {
+            closeOverlay(s);
+        } else {
+            clearSubView(s);
+            showMain(s);
+            refreshStats(s);
+        }
+    }
+
     static int settingsRowsPerPage(OverlayState s) {
         return Math.max(1, Math.min(5, (s.height - 142) / 28));
     }
@@ -1726,6 +1738,7 @@ public final class ServerFinderClient {
         Object client = s.client;
         Object parent = s.screen;
         int page = s.settingsPage;
+        boolean returnToMultiplayer = s.settingsReturnToMultiplayer;
         closeOverlay(s);
         try {
             ScreenCompat.setScreen(client, new BreakBlocksApiKeyScreen((net.minecraft.client.gui.screens.Screen) parent, () -> {
@@ -1733,7 +1746,11 @@ public final class ServerFinderClient {
                     openOverlay(client, parent, RuntimeAccess.intField(parent, "width", s.width),
                             RuntimeAccess.intField(parent, "height", s.height), false, true);
                     OverlayState resumed = STATES.get(parent);
-                    if (resumed != null) { resumed.settingsPage = page; showSettings(resumed); }
+                    if (resumed != null) {
+                        resumed.settingsPage = page;
+                        resumed.settingsReturnToMultiplayer = returnToMultiplayer;
+                        showSettings(resumed);
+                    }
                 } catch (Throwable error) { log("Could not return to API key settings", error); }
             }));
         } catch (Throwable error) { log("Could not open API key settings", error); }
@@ -2342,7 +2359,7 @@ public final class ServerFinderClient {
         final EnumMap<Provider, Integer> providerDuplicateOnlyStreaks = new EnumMap<>(Provider.class);
         final EnumSet<Provider> disabledProviders = EnumSet.noneOf(Provider.class);
         boolean open, loading, autoAdd, exhausted, apiKeyDisabledForSession, apiKeyAcceptedThisSession, apiKeyCheckedThisSession, apiKeyResponseWithoutAuthStatus, breakBlocksPaidTier;
-        boolean mainVisible = true, apiKeyTestOpen;
+        boolean mainVisible = true, apiKeyTestOpen, settingsReturnToMultiplayer;
         String lastConfiguredApiKey, apiKeyDisabledReason = "";
         boolean browserOpen, browserLoading, browserPaidTier;
         int browserVersionIndex, browserMinIndex, browserMaxIndex, browserSortIndex, browserTypeIndex, browserAgeDays;
