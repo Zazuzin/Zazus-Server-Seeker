@@ -33,6 +33,25 @@ jobs:
         with:
           gradle-version: "9.5.1"
 
+      - name: Inspect native EditBox API
+        run: |
+          python3 - <<'PYAPI'
+          import os, pathlib, zipfile, subprocess
+          paths=subprocess.check_output(['rg','--files',os.environ['GRADLE_USER_HOME']+'/caches','-g','*.jar'],text=True).splitlines()
+          found=0
+          for path in paths:
+              try:
+                  with zipfile.ZipFile(path) as jar:
+                      present='net/minecraft/client/gui/components/EditBox.class' in jar.namelist()
+                  if present:
+                      print('EDITBOX API:',path,flush=True)
+                      subprocess.run(['javap','-p','-classpath',path,'net.minecraft.client.gui.components.EditBox'],check=True)
+                      found+=1
+                      if found>=2: break
+              except zipfile.BadZipFile:
+                  pass
+          PYAPI
+
       - name: Test VIP player-search protocol and access boundaries
         working-directory: ${{ matrix.path }}
         run: bash tools/test_player_search.sh
