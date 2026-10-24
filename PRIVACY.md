@@ -16,6 +16,8 @@ When **Auth Detection** is enabled, Server Seeker may also open a short-lived Mi
 
 If configured, a BreakBlocks API key is sent only to BreakBlocks in an `Authorization: Bearer` header. It is not placed in request URLs or intentionally written to logs.
 
+Player Search sends only the player name or UUID you enter, along with your configured API key, to BreakBlocks after confirming VIP Treatment access. Searches are on demand and do not monitor players in the background. Results are held in memory for the open screen and are not saved or contributed automatically. Choosing Add saves only the selected server to your local server list.
+
 ## Local data
 
 The mod stores settings, category membership, favourites, recent servers, cleanup history and related state under the Minecraft instance's `config/zazus-server-seeker/` directory. BreakBlocks contribution attempts, queues, retries and cooldowns are also kept there. Confirmed private and LAN endpoints are stored separately in that directory and are not submitted. These files never contain the API key. Minecraft stores saved server entries in its normal `servers.dat` file. Automatic deletion recovery may create local backups of `servers.dat` under `config/zazus-server-seeker/backups/`.
