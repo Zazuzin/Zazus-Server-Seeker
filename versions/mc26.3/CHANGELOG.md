@@ -1,3 +1,9 @@
+# 1.2.2-rc.4
+
+- Fixed Back from the Multiplayer Settings shortcut returning to Finder instead of Multiplayer.
+- Preserved the original return menu after visiting API Key, API testing and settings submenus.
+- Added regression coverage for both Multiplayer and Finder return paths.
+
 # 1.2.2-rc.3
 
 - Added a Settings shortcut beside Zazu's Server Seeker on the Multiplayer hub.
