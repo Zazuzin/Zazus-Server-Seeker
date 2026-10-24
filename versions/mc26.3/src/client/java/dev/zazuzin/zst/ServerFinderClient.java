@@ -73,9 +73,14 @@ public final class ServerFinderClient {
     }
 
     private static void openOverlay(Object client, Object screen, int width, int height, boolean browse) throws Exception {
+        openOverlay(client, screen, width, height, browse, false);
+    }
+
+    private static void openOverlay(Object client, Object screen, int width, int height, boolean browse, boolean preferences) throws Exception {
         OverlayState old = STATES.get(screen);
         if (old != null && old.open) {
-            if (browse && !old.browserOpen) openBrowser(old);
+            if (preferences) showSettings(old);
+            else if (browse && !old.browserOpen) openBrowser(old);
             return;
         }
 
@@ -88,7 +93,7 @@ public final class ServerFinderClient {
         state.sortIndex = clampIndex(ToolState.sortIndex, SORT_LABELS.length, 0);
         state.serverTypeIndex = clampIndex(ToolState.serverTypeIndex, SERVER_TYPE_LABELS.length, 0);
         state.sourceIndex = clampIndex(ToolState.finderSourceIndex, SOURCE_LABELS.length, 0);
-        state.autoAdd = !browse && ToolState.autoAddDefault && !ToolState.quickSearch;
+        state.autoAdd = !browse && !preferences && ToolState.autoAddDefault && !ToolState.quickSearch;
         state.open = true;
         STATES.put(screen, state);
 
@@ -100,7 +105,8 @@ public final class ServerFinderClient {
             Reflection.setBoolean(widget, "active", false);
         }
         buildOverlay(state);
-        if (browse) openBrowser(state);
+        if (preferences) showSettings(state);
+        else if (browse) openBrowser(state);
         else if (state.autoAdd) {
             state.autoAddedThisSession = 0;
             scheduleNextAutoAddBatch(state, 0L, false, "Auto-add starting…");
@@ -1617,8 +1623,11 @@ public final class ServerFinderClient {
             subButton(s, "Back", x + contentWidth - 100, y, 100,
                     "Return to the Server Finder results.", b -> { clearSubView(s); showMain(s); refreshStats(s); }); y += 24;
             addSubLabel(s, "Build: " + ReleaseInfo.VERSION + "   Minecraft: " + ReleaseInfo.MINECRAFT_VERSION, x, y, leftWidth);
-            subButton(s, "Test API Key", rightX, y, rightWidth,
-                    "Check BreakBlocks using your configured key. The key stays hidden.", b -> {
+            int keyEditWidth = (rightWidth - 4) / 2;
+            subButton(s, "API Key", rightX, y, keyEditWidth,
+                    "Enter, save or clear the BreakBlocks key used by every Server Seeker feature.", b -> openApiKeyEditor(s));
+            subButton(s, "Test API Key", rightX + keyEditWidth + 4, y, rightWidth - keyEditWidth - 4,
+                    "Test the saved key used by the scanner, browser and player search.", b -> {
                         startApiKeyTest(s); showApiKeyTest(s);
                     }); y += 24;
             refreshConfiguredApiKey(s);
@@ -1689,7 +1698,7 @@ public final class ServerFinderClient {
                                 "View the BreakBlocks queue, allowance and log tools.", b -> showContributionStats(s));
                     }
                     case 8 -> addSubLabel(s, "Contribution log: config/zazus-server-seeker/breakblocks-contributions.csv", x, rowY, contentWidth);
-                    case 9 -> addSubLabel(s, "Config key: breakBlocksApiKey=...", x, rowY, contentWidth);
+                    case 9 -> addSubLabel(s, "Enter your key using the API Key button above.", x, rowY, contentWidth);
                     case 10 -> addSubLabel(s, "config/zazus-server-seeker/server-tool.properties", x, rowY, contentWidth);
                     default -> { }
                 }
@@ -1707,6 +1716,23 @@ public final class ServerFinderClient {
 
     static int settingsRowsPerPage(OverlayState s) {
         return Math.max(1, Math.min(5, (s.height - 142) / 28));
+    }
+
+    private static void openApiKeyEditor(OverlayState s) {
+        Object client = s.client;
+        net.minecraft.client.gui.screens.Screen parent = (net.minecraft.client.gui.screens.Screen) s.screen;
+        int page = s.settingsPage;
+        closeOverlay(s);
+        try {
+            ScreenCompat.setScreen(client, new BreakBlocksApiKeyScreen(parent, () -> {
+                try {
+                    openOverlay(client, parent, RuntimeAccess.intField(parent, "width", s.width),
+                            RuntimeAccess.intField(parent, "height", s.height), false, true);
+                    OverlayState resumed = STATES.get(parent);
+                    if (resumed != null) { resumed.settingsPage = page; showSettings(resumed); }
+                } catch (Throwable error) { log("Could not return to API key settings", error); }
+            }));
+        } catch (Throwable error) { log("Could not open API key settings", error); }
     }
 
     private static void showApiKeyTest(OverlayState s) {

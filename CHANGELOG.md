@@ -1,3 +1,10 @@
+# 1.2.2-rc.2
+
+- Added a masked in-game API-key editor under Finder Settings and the Player Search membership notice.
+- Added Save, Save & Test, Clear Key and Show/Hide controls using the existing per-instance config.
+- Preserved manual config edits and unrelated settings while saving key edits atomically.
+- Cancelled stale checks and reset old authentication when the saved key changes.
+
 # 1.2.2-rc.1
 
 - Added VIP Treatment player search by exact name, partial name and UUID on Multiplayer.

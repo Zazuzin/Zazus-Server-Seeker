@@ -41,6 +41,10 @@ jobs:
         working-directory: ${{ matrix.path }}
         run: ./build.sh
 
+      - name: Test in-game API-key persistence
+        working-directory: ${{ matrix.path }}
+        run: bash tools/test_api_key_settings.sh
+
       - name: Run regression suite
         working-directory: ${{ matrix.path }}
         run: ./verify.sh
