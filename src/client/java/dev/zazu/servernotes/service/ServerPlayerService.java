@@ -62,7 +62,8 @@ public final class ServerPlayerService {
         boolean changed = false;
         LinkedHashSet<String> seen = new LinkedHashSet<>();
         for (ObservedPlayer player : sample) {
-            if (player == null || !seen.add(player.key())) continue;
+            if (player == null || player.key() == null || player.key().isBlank() || player.username() == null
+                    || !player.username().matches("[A-Za-z0-9_]{1,16}") || !seen.add(player.key())) continue;
             ServerPlayerRecord record = resolve(profile, player);
             if (record == null) {
                 if (profile.players().size() >= 2048) continue;
@@ -77,6 +78,7 @@ public final class ServerPlayerService {
     private ServerPlayerRecord resolve(ServerProfile profile, ObservedPlayer player) {
         ServerPlayerRecord record = profile.players().get(player.key());
         if (record != null) return record;
+        if (player.username() == null || player.username().isBlank()) return null;
         String nameKey = "name:" + player.username().toLowerCase(java.util.Locale.ROOT);
         ServerPlayerRecord nameOnly = profile.players().get(nameKey);
         if (!player.uuid().isBlank() && nameOnly != null && nameOnly.uuid().isBlank()) {

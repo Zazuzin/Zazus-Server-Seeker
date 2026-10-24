@@ -6,7 +6,7 @@ import subprocess
 import zipfile
 
 root = Path(__file__).resolve().parents[1]
-classpath = (root / 'build/client-compile-classpath.txt').read_text().strip()
+classpath = os.pathsep.join((root / 'build/client-compile-classpath.txt').read_text().splitlines())
 
 def javap(name):
     return subprocess.run(['javap', '-p', '-s', '-classpath', classpath, name],

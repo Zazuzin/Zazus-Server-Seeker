@@ -11,7 +11,7 @@ import java.util.*;
 
 /** Main-thread bridge from actual ping replies to local Server Notes. No extra pings. */
 public final class ServerPingPlayerCollector {
-    private static final Map<String, Sample> PENDING = new LinkedHashMap<>();
+    private static final Map<String, List<Sample>> PENDING = new LinkedHashMap<>();
     private static boolean loggedFailure;
     private record Sample(List<ObservedPlayer> players, Instant observedAt) {}
     private ServerPingPlayerCollector() {}
@@ -66,9 +66,12 @@ public final class ServerPingPlayerCollector {
             } else {
                 // Unsaved Finder candidates get a short-lived, bounded memory cache.
                 // A profile is written only if that server is explicitly/automatically added.
-                PENDING.entrySet().removeIf(entry -> entry.getValue().observedAt().isBefore(at.minusSeconds(300)));
-                PENDING.put(identity.key(), new Sample(sample, at));
-                while (PENDING.size() > 512) PENDING.remove(PENDING.keySet().iterator().next());
+                PENDING.entrySet().removeIf(entry -> entry.getValue().getLast().observedAt().isBefore(at.minusSeconds(300)));
+                List<Sample> history = new ArrayList<>(PENDING.getOrDefault(identity.key(), List.of()));
+                history.add(new Sample(sample, at));
+                while (history.size() > 2) history.removeFirst();
+                PENDING.put(identity.key(), List.copyOf(history));
+                while (PENDING.size() > 256) PENDING.remove(PENDING.keySet().iterator().next());
             }
         } catch (IllegalStateException uninitialized) {
             // Status probes can also run in the offline regression harness.
@@ -79,9 +82,13 @@ public final class ServerPingPlayerCollector {
         if (!ToolState.recordPingPlayers) { PENDING.clear(); return; }
         try {
             ServerIdentity identity = ServerAddressNormalizer.normalize(endpoint);
-            Sample sample = PENDING.remove(identity.key());
-            if (sample == null || sample.observedAt().isBefore(Instant.now().minusSeconds(300))) return;
-            record(client, endpoint, sample.players(), sample.observedAt(), true);
+            List<Sample> history = PENDING.remove(identity.key());
+            if (history == null) return;
+            for (Sample sample : history) {
+                if (!sample.observedAt().isBefore(Instant.now().minusSeconds(300))) {
+                    record(client, endpoint, sample.players(), sample.observedAt(), true);
+                }
+            }
         } catch (Exception | LinkageError failure) { report(failure); }
     }
 

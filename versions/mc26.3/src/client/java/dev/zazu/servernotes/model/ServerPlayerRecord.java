@@ -56,7 +56,12 @@ public final class ServerPlayerRecord {
             if (seen.isBefore(previous.plusSeconds(60))) return changed;
         }
         lastPingSeenAt = observedAt;
-        if (lastSeenAt.isBlank() || seen.isAfter(java.time.Instant.parse(lastSeenAt))) lastSeenAt = observedAt;
+        boolean newer = lastSeenAt.isBlank();
+        if (!newer) {
+            try { newer = seen.isAfter(java.time.Instant.parse(lastSeenAt)); }
+            catch (RuntimeException legacyTimestamp) { newer = true; }
+        }
+        if (newer) lastSeenAt = observedAt;
         if (pingSightings < Integer.MAX_VALUE) pingSightings++;
         return true;
     }
