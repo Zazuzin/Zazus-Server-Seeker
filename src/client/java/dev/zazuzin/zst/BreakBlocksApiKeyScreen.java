@@ -49,7 +49,7 @@ final class BreakBlocksApiKeyScreen extends Screen {
         keyBox.setMaxLength(512);
         keyBox.setValue(draft);
         keyBox.setResponder(value -> draft = value);
-        keyBox.setFormatter((value, offset) -> FormattedCharSequence.forward(shown ? value : "*".repeat(value.length()), Style.EMPTY));
+        keyBox.addFormatter((value, offset) -> FormattedCharSequence.forward(shown ? value : "*".repeat(value.length()), Style.EMPTY));
         keyBox.active = !checking;
         addRenderableWidget(keyBox);
         Button visibility = button(shown ? "Hide" : "Show", x + w - 64, 65, 64, () -> { shown = !shown; redraw(); });
