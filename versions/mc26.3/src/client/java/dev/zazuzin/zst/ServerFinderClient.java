@@ -1673,13 +1673,8 @@ public final class ServerFinderClient {
                 int y = 85 + slot * 26;
                 Object label = addSubLabel(s, names[index], x, y, 108);
                 Reflection.setTooltip(label, hints[index]);
-                net.minecraft.client.gui.components.EditBox box = new net.minecraft.client.gui.components.EditBox(
-                        (net.minecraft.client.gui.Font) Reflection.getField(s.screen, "font"), x + 114, y, w - 114, 20,
-                        net.minecraft.network.chat.Component.literal(names[index]));
-                box.setMaxLength(ServerSearchFilters.MAX_LENGTH);
-                box.setValue(s.filterDraft[index]);
-                box.setResponder(value -> s.filterDraft[index] = value);
-                addSub(s, box);
+                addSub(s, DetailedFilterWidgets.textBox(s.screen, x + 114, y, w - 114,
+                        names[index], s.filterDraft[index], value -> s.filterDraft[index] = value));
             }
             int half = (w - 6) / 2;
             subButton(s, "Apply", x, s.height - 52, half, "Save filters and reset the affected search.", b -> applyDetailedFilters(s));
