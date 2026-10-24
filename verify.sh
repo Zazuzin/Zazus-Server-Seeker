@@ -1688,6 +1688,22 @@ public final class ServerList {
     public void remove(ServerData data) { servers.remove(data); }
 }
 JAVA
+# The navigation action uses Fabric's live widget-list adapter. Supply that
+# adapter only in the headless test fixture; the mod itself was compiled above
+# against the real Minecraft and Fabric APIs.
+mkdir -p "$RUNTIME_TEST_DIR/net/fabricmc/fabric/api/client/screen/v1"
+cat > "$RUNTIME_TEST_DIR/net/fabricmc/fabric/api/client/screen/v1/Screens.java" <<'JAVA'
+package net.fabricmc.fabric.api.client.screen.v1;
+import java.util.List;
+public final class Screens {
+    @SuppressWarnings("unchecked")
+    public static List<Object> getWidgets(Object screen) throws ReflectiveOperationException {
+        var field = screen.getClass().getDeclaredField("children");
+        field.setAccessible(true);
+        return (List<Object>) field.get(screen);
+    }
+}
+JAVA
 cat > "$RUNTIME_TEST_DIR/dev/zazuzin/zst/RuntimeRegressionTest.java" <<'JAVA'
 package dev.zazuzin.zst;
 
@@ -1844,7 +1860,7 @@ public final class RuntimeRegressionTest {
     }
 }
 JAVA
-javac --release 25 -cp "$JAR" -d "$RUNTIME_TEST_DIR"   "$RUNTIME_TEST_DIR/net/fabricmc/api/ClientModInitializer.java"   "$RUNTIME_TEST_DIR/net/minecraft/client/multiplayer/ServerData.java"   "$RUNTIME_TEST_DIR/net/minecraft/client/multiplayer/ServerList.java"   "$RUNTIME_TEST_DIR/dev/zazuzin/zst/RuntimeRegressionTest.java"
+javac --release 25 -cp "$JAR" -d "$RUNTIME_TEST_DIR"   "$RUNTIME_TEST_DIR/net/fabricmc/api/ClientModInitializer.java"   "$RUNTIME_TEST_DIR/net/fabricmc/fabric/api/client/screen/v1/Screens.java"   "$RUNTIME_TEST_DIR/net/minecraft/client/multiplayer/ServerData.java"   "$RUNTIME_TEST_DIR/net/minecraft/client/multiplayer/ServerList.java"   "$RUNTIME_TEST_DIR/dev/zazuzin/zst/RuntimeRegressionTest.java"
 java -Duser.dir="$RUNTIME_TEST_DIR" -cp "$JAR:$RUNTIME_TEST_DIR" dev.zazuzin.zst.RuntimeRegressionTest
 rm -rf "$RUNTIME_TEST_DIR"
 echo "Widget-removal and persisted whitelist-deletion regression tests passed."
