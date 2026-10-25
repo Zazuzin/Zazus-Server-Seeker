@@ -12,6 +12,27 @@ Zazu's Server Seeker is a client-side Fabric mod for Minecraft Java Edition 26.2
 - [Issues](https://github.com/Zazuzin/Zazus-Server-Seeker/issues)
 - [Discord support](https://breakblocks.com/discord)
 
+## Download and install
+
+Choose the download for your Minecraft version:
+
+| Minecraft | Download | Fabric Loader |
+| --- | --- | --- |
+| 26.2 | [Zazus-Server-Seeker-1.2.1-mc26.2.jar](https://github.com/Zazuzin/Zazus-Server-Seeker/releases/download/v1.2.1/Zazus-Server-Seeker-1.2.1-mc26.2.jar) | 0.19.3 or newer |
+| 26.3 | [Zazus-Server-Seeker-1.2.1-mc26.3.jar](https://github.com/Zazuzin/Zazus-Server-Seeker/releases/download/v1.2.1/Zazus-Server-Seeker-1.2.1-mc26.3.jar) | 0.19.5 or newer |
+
+Both versions require **Java 25** and [Fabric API](https://modrinth.com/mod/fabric-api) for the matching Minecraft version: `0.158.0+26.2` or newer for 26.2, or `0.163.0+26.3` or newer for 26.3.
+
+Install [Fabric Loader](https://fabricmc.net/use/installer/) for your Minecraft version, then:
+
+1. Put the downloaded JAR in your Minecraft instance's `mods` folder alongside Fabric API.
+2. Remove older Server Seeker JARs so only one version is installed.
+3. Start Minecraft and open **Multiplayer → Zazu's Server Seeker**.
+
+Install the mod on your client. The server does not need it.
+
+ViaFabricPlus 4.6.1+ is optional; it is required to join 26.3 servers from a 26.2 client.
+
 ## Features
 
 - Finds servers through BreakBlocks, Cornbread and MineScan.
@@ -91,19 +112,7 @@ breakBlocksApiKey=YOUR_API_KEY
 
 Do not commit or share your API key.
 
-## Requirements
-
-- Minecraft Java Edition 26.2 with Fabric Loader 0.19.3+ and Fabric API 0.158.0+26.2, **or** Minecraft Java Edition 26.3 with Fabric Loader 0.19.5+ and Fabric API 0.163.0+26.3
-- Java 25
-- ViaFabricPlus 4.6.1+ (optional)
-
-## Installation
-
-1. Install Fabric Loader and Fabric API for your Minecraft version.
-2. Download either `Zazus-Server-Seeker-1.2.1-mc26.2.jar` or `Zazus-Server-Seeker-1.2.1-mc26.3.jar` to match your instance.
-3. Put it in the instance's `mods` folder.
-4. Remove older Server Seeker JARs so only one version is installed.
-5. Start Minecraft and open Multiplayer.
+## Updating and data
 
 Existing servers, settings, favourites, categories, auth cache, Recent Servers, BreakBlocks state and Server Notes data are preserved when updating.
 
