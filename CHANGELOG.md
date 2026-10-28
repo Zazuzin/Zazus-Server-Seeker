@@ -1,3 +1,10 @@
+# 1.2.2-rc.6
+
+- Confirmed each Finder candidate independently, keeping two successful status checks one second apart.
+- Published verified results immediately while slow or unreachable candidates finish in the background.
+- Retained every verified result from each provider page and preserved sorting, Add controls and Auto Add limits.
+- Added checked, verified and pending progress counts, plus controlled loopback regression coverage for streaming and cancellation.
+
 # 1.2.2-rc.5
 
 - Added saved country, region, MOTD and modpack filters to Finder and Browse BreakBlocks.

@@ -489,7 +489,7 @@ grep -q 'verifyProviderCandidatesTwice' "$ROOT/src/client/java/dev/zazuzin/zst/S
 grep -q 'SECOND_STATUS_CONFIRM_DELAY_MS = 1_000L' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
   echo "Second Finder verification delay is missing" >&2; exit 1;
 }
-grep -q 'VanillaStatusProbe.probe(s.client, s.screen, endpoints' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
+grep -q 'VanillaStatusProbe.probeOne(s.client, s.screen, record.endpoint()' "$ROOT/src/client/java/dev/zazuzin/zst/ServerFinderClient.java" || {
   echo "Finder does not gate candidates on a direct Minecraft status handshake" >&2; exit 1;
 }
 grep -q 'VanillaStatusProbe.probeOne' "$ROOT/src/client/java/dev/zazuzin/zst/FinderLatencyOverlay.java" || {
@@ -1879,6 +1879,8 @@ public final class RuntimeRegressionTest {
 JAVA
 javac --release 25 -cp "$JAR" -d "$RUNTIME_TEST_DIR"   "$RUNTIME_TEST_DIR/net/fabricmc/api/ClientModInitializer.java"   "$RUNTIME_TEST_DIR/net/fabricmc/fabric/api/client/screen/v1/Screens.java"   "$RUNTIME_TEST_DIR/net/minecraft/client/multiplayer/ServerData.java"   "$RUNTIME_TEST_DIR/net/minecraft/client/multiplayer/ServerList.java"   "$RUNTIME_TEST_DIR/dev/zazuzin/zst/RuntimeRegressionTest.java"
 java -Duser.dir="$RUNTIME_TEST_DIR" -cp "$JAR:$RUNTIME_TEST_DIR" dev.zazuzin.zst.RuntimeRegressionTest
+javac --release 25 -cp "$JAR:$RUNTIME_TEST_DIR" -d "$RUNTIME_TEST_DIR" "$ROOT/tools/StreamingFinderTest.java"
+java -Duser.dir="$RUNTIME_TEST_DIR" -cp "$JAR:$RUNTIME_TEST_DIR" dev.zazuzin.zst.StreamingFinderTest
 rm -rf "$RUNTIME_TEST_DIR"
 echo "Widget-removal and persisted whitelist-deletion regression tests passed."
 

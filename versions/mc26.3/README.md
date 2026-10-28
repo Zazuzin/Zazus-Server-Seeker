@@ -10,11 +10,17 @@ Zazu's Server Seeker is a client-side Fabric mod for Minecraft Java Edition 26.2
 - [Issues](https://github.com/Zazuzin/Zazus-Server-Seeker/issues)
 - [Discord support](https://discord.gg/TC4PhPx9sf)
 
-## Development build: 1.2.2-rc.5
+## Development build: 1.2.2-rc.6
 
 Player Search is available from Multiplayer in this test build. It requires a BreakBlocks API key whose account is confirmed as **VIP Treatment**. Exact-name, partial-name and UUID searches show recorded names and associated servers. These are historical sightings and do not prove that a player is currently online on a listed server. Results are kept only for the open search session; servers are saved only when you choose Add.
 
 Users without confirmed VIP access see a membership notice with [Join VIP on Patreon](https://www.patreon.com/c/BreakBlocks), BreakBlocks Account, API Key Settings and Check Access controls. Link Patreon to your BreakBlocks account and configure your own API key using **Multiplayer → Settings → API Key** (or **Finder → Settings → API Key**). The Multiplayer Settings shortcut sits beside Zazu’s Server Seeker and opens preferences directly without starting a scan. Back returns to the menu you opened settings from, including after editing the API key. The editor hides the key by default and includes Save, Save & Test, Clear Key and Show/Hide controls. Changes take effect without restarting Minecraft. Access is checked again when opening Player Search; invalid keys, denied permissions and rate limits do not fall back to public player searches.
+
+## Faster verified results
+
+Finder verifies each candidate independently. Each server still needs two successful status checks at least one second apart, and appears as soon as it passes both. Slower candidates continue in the background while verified rows can be inspected or added. The progress line shows checked, verified and pending candidates. Results remain sorted and paginated, and all verified candidates from a provider page are retained. Auto Add keeps its configured limit.
+
+The status pool remains capped at 20 simultaneous requests with the existing connection and response timeouts. Provider request limits and Quick Search behaviour are unchanged.
 
 ## Detailed filters and ping player history
 

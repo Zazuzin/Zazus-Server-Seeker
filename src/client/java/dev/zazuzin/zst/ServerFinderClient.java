@@ -850,116 +850,90 @@ public final class ServerFinderClient {
         }
         if (filtered.isEmpty()) { fetchUntilBatchFull(s); return; }
 
-        List<String> endpoints = filtered.stream().map(ServerRecord::endpoint).toList();
-        final long verificationStarted = System.nanoTime();
-        final long firstPassStarted = System.nanoTime();
-        s.statusProbeAttempts += endpoints.size();
-        if (provider == Provider.BREAKBLOCKS) s.breakBlocksProbeAttempts += endpoints.size();
-        setStatus(s, "Verifying " + endpoints.size() + " candidate(s) — status check 1/2…");
-
         final long token = s.searchGeneration;
-        VanillaStatusProbe.probe(s.client, s.screen, endpoints, () ->
-                s.open && s.loading && s.searchGeneration == token
-        ).whenComplete((firstResults, firstError) -> Reflection.execute(s.client, () -> {
-            if (!s.open || !s.loading || s.searchGeneration != token) return;
-
-            Map<String, VanillaStatusProbe.Result> firstByEndpoint = resultMap(firstResults);
-            List<ServerRecord> firstPassed = new ArrayList<>();
-            for (ServerRecord record : filtered) {
-                VanillaStatusProbe.Result result = firstByEndpoint.get(normalizeEndpoint(record.endpoint()));
-                if (result != null && result.replied()) {
-                    s.statusFirstPasses++;
-                    if (provider == Provider.BREAKBLOCKS) s.breakBlocksStatusReplies++;
-                    firstPassed.add(record.withLiveVersion(result.version(), result.protocol()));
-                } else {
-                    recordProbeFailure(s, provider, result);
-                }
-            }
-
-            logProbePass(provider, 1, filtered.size(), firstPassed.size(), firstPassStarted);
-
-            if (firstPassed.isEmpty()) {
-                s.statusRejected += filtered.size();
-                setStatus(s, "Rejected " + filtered.size() + " stale/unreachable candidate(s); searching next batch…");
-                fetchUntilBatchFull(s);
-                return;
-            }
-
-            setStatus(s, "Status check 1/2 passed " + firstPassed.size() + "/" + filtered.size()
-                    + "; confirming in 1 second…");
-
-            CompletableFuture.delayedExecutor(SECOND_STATUS_CONFIRM_DELAY_MS, TimeUnit.MILLISECONDS).execute(() ->
-                    Reflection.execute(s.client, () -> {
-                        if (!s.open || !s.loading || s.searchGeneration != token) return;
-
-                        List<String> confirmEndpoints = firstPassed.stream().map(ServerRecord::endpoint).toList();
-                        final long secondPassStarted = System.nanoTime();
-                        s.statusProbeAttempts += confirmEndpoints.size();
-                        if (provider == Provider.BREAKBLOCKS) s.breakBlocksProbeAttempts += confirmEndpoints.size();
-                        setStatus(s, "Verifying " + confirmEndpoints.size() + " candidate(s) — status check 2/2…");
-
-                        VanillaStatusProbe.probe(s.client, s.screen, confirmEndpoints, () ->
-                                s.open && s.loading && s.searchGeneration == token
-                        ).whenComplete((secondResults, secondError) -> Reflection.execute(s.client, () -> {
-                            if (!s.open || !s.loading || s.searchGeneration != token) return;
-
-                            Map<String, VanillaStatusProbe.Result> secondByEndpoint = resultMap(secondResults);
-                            List<ServerRecord> verified = new ArrayList<>();
-                            for (ServerRecord record : firstPassed) {
-                                VanillaStatusProbe.Result result = secondByEndpoint.get(normalizeEndpoint(record.endpoint()));
-                                if (result != null && result.replied()) {
-                                    ServerRecord confirmed = record.withLiveVersion(result.version(), result.protocol());
-                                    if (!versionMatches(s, confirmed)) {
-                                        if (provider == Provider.BREAKBLOCKS) s.breakBlocksIncompatibleReplies++;
-                                        continue;
-                                    }
-                                    s.statusSecondPasses++;
-                                    s.liveVerified++;
-                                    if (provider == Provider.BREAKBLOCKS) {
-                                        s.breakBlocksStatusReplies++;
-                                        s.breakBlocksLiveVerified++;
-                                    }
-                                    verified.add(confirmed);
-                                } else {
-                                    recordProbeFailure(s, provider, result);
-                                }
-                            }
-
-                            logProbePass(provider, 2, firstPassed.size(), verified.size(), secondPassStarted);
-                            System.out.println("[Zazu's Server Seeker] " + provider.label
-                                    + " verification finished: " + verified.size() + "/" + filtered.size()
-                                    + " accepted in " + elapsedMillis(verificationStarted) + " ms");
-
-                            s.statusRejected += filtered.size() - verified.size();
-                            if (verified.isEmpty()) {
-                                setStatus(s, "Second status check rejected remaining candidates; searching again…");
-                                fetchUntilBatchFull(s);
-                                return;
-                            }
-
-                            acceptVerifiedCandidates(s, provider, verified);
-                        }));
-                    }));
-        }));
+        VerificationBatch batch = new VerificationBatch(filtered.size());
+        updateVerificationProgress(s, provider, batch);
+        for (ServerRecord record : filtered) probeCandidate(s, provider, record, batch, token, false);
     }
 
-    private static void logProbePass(Provider provider, int pass, int attempted, int replied, long started) {
-        System.out.println("[Zazu's Server Seeker] " + provider.label + " status check " + pass
-                + "/2: " + replied + "/" + attempted + " replied in " + elapsedMillis(started) + " ms");
+    private static boolean verificationActive(OverlayState s, long token) {
+        return s.open && s.loading && s.searchGeneration == token;
+    }
+
+    private static void probeCandidate(OverlayState s, Provider provider, ServerRecord record,
+                                       VerificationBatch batch, long token, boolean confirming) {
+        if (!verificationActive(s, token)) return;
+        s.statusProbeAttempts++;
+        if (provider == Provider.BREAKBLOCKS) s.breakBlocksProbeAttempts++;
+
+        // A single-target future completes independently of the rest of the page.
+        // Both passes still share VanillaStatusProbe's bounded twenty-worker pool.
+        VanillaStatusProbe.probeOne(s.client, s.screen, record.endpoint(), () -> verificationActive(s, token))
+                .whenComplete((result, error) -> Reflection.execute(s.client, () -> {
+                    if (!verificationActive(s, token)) return;
+                    if (result == null || !result.replied()) {
+                        recordProbeFailure(s, provider, result);
+                        s.statusRejected++;
+                        completeVerificationCandidate(s, provider, batch);
+                        return;
+                    }
+
+                    ServerRecord live = record.withLiveVersion(result.version(), result.protocol());
+                    if (!confirming) {
+                        s.statusFirstPasses++;
+                        if (provider == Provider.BREAKBLOCKS) s.breakBlocksStatusReplies++;
+                        CompletableFuture.delayedExecutor(SECOND_STATUS_CONFIRM_DELAY_MS, TimeUnit.MILLISECONDS)
+                                .execute(() -> Reflection.execute(s.client,
+                                        () -> probeCandidate(s, provider, live, batch, token, true)));
+                        return;
+                    }
+
+                    if (!versionMatches(s, live) || ToolState.isBlocked(live.endpoint())) {
+                        if (provider == Provider.BREAKBLOCKS && !versionMatches(s, live)) s.breakBlocksIncompatibleReplies++;
+                        s.statusRejected++;
+                    } else {
+                        s.statusSecondPasses++;
+                        s.liveVerified++;
+                        batch.verified++;
+                        if (provider == Provider.BREAKBLOCKS) {
+                            s.breakBlocksStatusReplies++;
+                            s.breakBlocksLiveVerified++;
+                        }
+                        if (batch.verified == 1) {
+                            System.out.println("[Zazu's Server Seeker] " + provider.label
+                                    + " first double-verified result in " + elapsedMillis(batch.started) + " ms");
+                        }
+                        acceptVerifiedCandidates(s, provider, List.of(live));
+                    }
+                    completeVerificationCandidate(s, provider, batch);
+                }));
+    }
+
+    private static void completeVerificationCandidate(OverlayState s, Provider provider, VerificationBatch batch) {
+        batch.pending--;
+        updateVerificationProgress(s, provider, batch);
+        if (batch.pending == 0) {
+            System.out.println("[Zazu's Server Seeker] " + provider.label + " verification finished: "
+                    + batch.verified + "/" + batch.total + " accepted in " + elapsedMillis(batch.started) + " ms");
+            continueAfterLiveChecks(s);
+        }
+    }
+
+    private static void updateVerificationProgress(OverlayState s, Provider provider, VerificationBatch batch) {
+        setStatus(s, provider.label + ": " + (batch.total - batch.pending) + "/" + batch.total
+                + " checked · " + batch.verified + " verified · " + batch.pending + " pending");
     }
 
     private static long elapsedMillis(long started) {
         return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
     }
 
-    private static Map<String, VanillaStatusProbe.Result> resultMap(List<VanillaStatusProbe.Result> results) {
-        Map<String, VanillaStatusProbe.Result> out = new HashMap<>();
-        if (results == null) return out;
-        for (VanillaStatusProbe.Result result : results) {
-            if (result == null) continue;
-            out.put(normalizeEndpoint(result.endpoint()), result);
-        }
-        return out;
+    // Accessed only on Minecraft's client thread, including delayed completions.
+    private static final class VerificationBatch {
+        final int total;
+        final long started = System.nanoTime();
+        int pending, verified;
+        VerificationBatch(int total) { this.total = total; this.pending = total; }
     }
 
     private static void recordProbeFailure(OverlayState s, Provider provider, VanillaStatusProbe.Result result) {
@@ -1001,13 +975,7 @@ public final class ServerFinderClient {
         }
 
         for (ServerRecord r : verified) {
-            if (s.currentBatch.size() < DISPLAY_RESULTS) s.currentBatch.add(r);
-        }
-
-        if (provider == Provider.BREAKBLOCKS) {
-            setStatus(s, breakBlocksProgressLabel(s, verified.size() + " double-verified live"));
-        } else {
-            setStatus(s, provider.label + ": " + verified.size() + " double-verified live server(s)");
+            s.currentBatch.add(r);
         }
 
         if (s.autoAdd) {
@@ -1028,7 +996,8 @@ public final class ServerFinderClient {
                 } catch (Throwable t) { log("Server-list change failed: " + r.endpoint(), t); }
             }
         }
-        continueAfterLiveChecks(s);
+        publishBatchResults(s);
+        refreshStats(s);
     }
 
     private static void scheduleAuthChecks(OverlayState s, Collection<ServerRecord> records) {
@@ -1049,14 +1018,7 @@ public final class ServerFinderClient {
 
     private static void finishBatch(OverlayState s) {
         s.loading = false;
-        LinkedHashMap<String, ServerRecord> accumulated = new LinkedHashMap<>();
-        for (ServerRecord record : s.results) accumulated.put(normalizeEndpoint(record.endpoint()), record);
-        for (ServerRecord record : s.currentBatch) accumulated.putIfAbsent(normalizeEndpoint(record.endpoint()), record);
-        List<ServerRecord> sorted = new ArrayList<>(accumulated.values());
-        sortRecords(s, sorted);
-        s.results = List.copyOf(sorted);
-        s.resultPage = Math.max(0, Math.min(s.resultPage, resultPageCount(s) - 1));
-        refreshRows(s);
+        publishBatchResults(s);
         String suffix = s.exhausted ? " — provider pool exhausted" : " — source: " + sourceLabel(s);
         String diagnostics = ToolState.quickSearch
                 ? " — unverified provider results"
@@ -1071,6 +1033,17 @@ public final class ServerFinderClient {
             long delay = s.exhausted ? AUTO_ADD_AFTER_EXHAUSTED_MS : AUTO_ADD_BETWEEN_BATCHES_MS;
             scheduleNextAutoAddBatch(s, delay, s.exhausted, null);
         }
+    }
+
+    private static void publishBatchResults(OverlayState s) {
+        LinkedHashMap<String, ServerRecord> accumulated = new LinkedHashMap<>();
+        for (ServerRecord record : s.results) accumulated.put(normalizeEndpoint(record.endpoint()), record);
+        for (ServerRecord record : s.currentBatch) accumulated.putIfAbsent(normalizeEndpoint(record.endpoint()), record);
+        List<ServerRecord> sorted = new ArrayList<>(accumulated.values());
+        sortRecords(s, sorted);
+        s.results = List.copyOf(sorted);
+        s.resultPage = Math.max(0, Math.min(s.resultPage, resultPageCount(s) - 1));
+        refreshRows(s);
     }
 
     private static void scheduleNextAutoAddBatch(OverlayState s, long delayMs, boolean resetPool, String status) {
