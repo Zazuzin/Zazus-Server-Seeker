@@ -1306,6 +1306,9 @@ public final class ProviderParsingTest {
 JAVA
 javac --release 25 -cp "$JAR" -d "$PROVIDER_TEST_DIR" "$PROVIDER_TEST_DIR/dev/zazuzin/zst/ProviderParsingTest.java"
 java -Duser.dir="$PROVIDER_TEST_DIR" -cp "$JAR:$PROVIDER_TEST_DIR" dev.zazuzin.zst.ProviderParsingTest
+javac --release 25 -cp "$JAR" -d "$PROVIDER_TEST_DIR" "$ROOT/tools/MineScanIntegrationTest.java" "$ROOT/tools/MineScanRateBudgetTest.java"
+java -Duser.dir="$PROVIDER_TEST_DIR" -cp "$JAR:$PROVIDER_TEST_DIR" dev.zazuzin.zst.MineScanIntegrationTest
+java -Duser.dir="$PROVIDER_TEST_DIR" -cp "$JAR:$PROVIDER_TEST_DIR" dev.zazuzin.zst.MineScanRateBudgetTest
 rm -rf "$PROVIDER_TEST_DIR"
 echo "Multi-provider parsing/request regression tests passed."
 

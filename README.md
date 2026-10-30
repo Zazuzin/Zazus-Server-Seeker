@@ -33,7 +33,7 @@ Install the mod on your client. The server does not need it.
 
 ViaFabricPlus 4.6.1+ is optional; it is required to join 26.3 servers from a 26.2 client.
 
-## Development build: 1.2.2-rc.6
+## Development build: 1.2.2-rc.7
 
 Player Search is available from Multiplayer in this test build. It requires a BreakBlocks API key whose account is confirmed as **VIP Treatment**. Exact-name, partial-name and UUID searches show recorded names and associated servers. These are historical sightings and do not prove that a player is currently online on a listed server. Results are kept only for the open search session; servers are saved only when you choose Add.
 
@@ -53,7 +53,7 @@ Normal saved-server pings and Finder verification can record the player names in
 
 ## Features
 
-- Finds servers through BreakBlocks, Cornbread and MineScan.
+- Finds servers through BreakBlocks, MineScan and Cornbread.
 - Browse BreakBlocks listings page by page in Multiplayer; save chosen entries to Servers with Add. Browsing does not start a scan or save the whole page.
 - Randomizes BreakBlocks page traversal and provider-result order so simultaneous searches are less likely to test the same servers first.
 - Verified Search checks results directly before showing or adding them.
@@ -100,8 +100,8 @@ Use **Browse BreakBlocks** on the main Multiplayer screen to inspect one API pag
 
 Choose a source under **Finder → Settings**:
 
-- **Auto** starts with BreakBlocks and falls back when needed.
-- **All Sources** rotates through the available providers and removes duplicate addresses.
+- **Auto** starts with BreakBlocks, then falls back to MineScan, followed by Cornbread.
+- **All Sources** rotates through BreakBlocks, MineScan and Cornbread in that order and removes duplicate addresses.
 - **BreakBlocks**, **Cornbread** or **MineScan** uses only that provider.
 
 BreakBlocks supports an optional API key. When BreakBlocks confirms an
@@ -109,6 +109,8 @@ authenticated paid tier, Server Seeker shows the tier and uses every available
 page reported by the search instead of the public page cap. Page and result
 orders remain randomized without repeating pages. Cornbread and MineScan do not
 require an API key.
+
+MineScan uses its documented [public API](https://minescan.xyz/docs). Its request allowance is shared across Finder searches within the running client: at most 60 requests per minute and 1,000 per hour. A rate-limit response pauses MineScan requests and allows Auto to continue with the next provider. Server versions and available country/city details are read from its v2 response.
 
 Verified Search uses two direct Minecraft status checks before a result is shown or Auto Added. Quick Search skips those checks, so Auto Add is disabled in Quick mode.
 
@@ -155,6 +157,8 @@ The built JAR is written to `build/libs/`. The 26.3 source is in [`versions/mc26
 Created by Zazuzin.
 
 Special thanks to Sheepy @ [BreakBlocks](https://breakblocks.com) for your server-discovery service and contribution support. You can also find Me in the [BreakBlocks Discord](https://breakblocks.com/discord).
+
+Additional server discovery provided by [MineScan](https://minescan.xyz).
 
 ## License
 

@@ -1,3 +1,10 @@
+# 1.2.2-rc.7
+
+- Prioritised server discovery as BreakBlocks, then MineScan, then Cornbread in Auto and All Sources.
+- Verified MineScan integration against its v2 API documentation and a live one-result response.
+- Added a shared MineScan minute/hour request allowance and Retry-After handling.
+- Read MineScan raw-version fallbacks, country and city metadata while preserving saved provider selections and existing verification.
+
 # 1.2.2-rc.6
 
 - Confirmed each Finder candidate independently, keeping two successful status checks one second apart.

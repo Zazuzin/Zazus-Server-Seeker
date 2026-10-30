@@ -495,7 +495,7 @@ public final class ServerFinderClient {
         if (mode == 3) return providerAvailableForRequest(s, Provider.CORNBREAD) ? Provider.CORNBREAD : null;
         if (mode == 4) return providerAvailableForRequest(s, Provider.MINESCAN) ? Provider.MINESCAN : null;
 
-        Provider[] order = {Provider.BREAKBLOCKS, Provider.CORNBREAD, Provider.MINESCAN};
+        Provider[] order = {Provider.BREAKBLOCKS, Provider.MINESCAN, Provider.CORNBREAD};
         if (mode == 1) {
             for (int i = 0; i < order.length; i++) {
                 int index = (s.allSourceCursor + i) % order.length;
@@ -508,7 +508,7 @@ public final class ServerFinderClient {
             return null;
         }
 
-        // Auto mode prefers BreakBlocks, then fails over to Cornbread and MineScan.
+        // Auto mode prefers BreakBlocks, then fails over to MineScan and Cornbread.
         if (s.activeProvider != null && providerAvailableForRequest(s, s.activeProvider)) return s.activeProvider;
         for (Provider p : order) if (providerAvailableForRequest(s, p)) return p;
         return null;
@@ -603,12 +603,21 @@ public final class ServerFinderClient {
     }
 
     private static void fetchMineScan(OverlayState s) {
+        if (!MineScanRateBudget.SHARED.tryReserveRequest()) {
+            long seconds = (MineScanRateBudget.SHARED.retryDelayMillis() + 999L) / 1_000L;
+            providerFailure(s, Provider.MINESCAN, "request allowance reached; retry in " + seconds + "s");
+            return;
+        }
+        sendSimpleProviderRequest(s, Provider.MINESCAN,
+                buildMineScanUri(MIN_PLAYER_OPTIONS[s.minIndex], providerVersionValue(s)));
+    }
+
+    static URI buildMineScanUri(int minPlayers, String version) {
         StringBuilder url = new StringBuilder(MINESCAN_API_URL)
                 .append("?count=").append(API_LIMIT)
-                .append("&minPlayers=").append(MIN_PLAYER_OPTIONS[s.minIndex]);
-        String version = providerVersionValue(s);
-        if (!version.isBlank()) url.append("&version=").append(enc(version));
-        sendSimpleProviderRequest(s, Provider.MINESCAN, URI.create(url.toString()));
+                .append("&minPlayers=").append(Math.max(0, minPlayers));
+        if (version != null && !version.isBlank()) url.append("&version=").append(enc(version));
+        return URI.create(url.toString());
     }
 
     private static String providerVersionValue(OverlayState s) {
@@ -735,6 +744,7 @@ public final class ServerFinderClient {
         int status = response.statusCode();
         if (status == 429) {
             String retry = response.headers().firstValue("Retry-After").orElse("").trim();
+            if (provider == Provider.MINESCAN) MineScanRateBudget.SHARED.noteRateLimit(retry);
             providerFailure(s, provider, retry.isBlank() ? "rate limit reached" : "rate limit; retry in " + retry + "s");
             return;
         }
@@ -2378,13 +2388,16 @@ public final class ServerFinderClient {
             if (!(obj instanceof Map<?, ?> m)) continue;
             String address = asString(firstNonNull(m.get("serverip"), m.get("address"), m.get("ip")), "");
             if (address.isBlank()) continue;
-            String auth = asString(firstNonNull(m.get("authmode"), m.get("authMode")), "").toLowerCase(Locale.ROOT);
+            String auth = asString(firstNonNull(m.get("authmode"), m.get("authMode")), "").trim().toLowerCase(Locale.ROOT);
             boolean offline = auth.equals("offline") || auth.equals("cracked");
             boolean whitelist = auth.equals("whitelist") || auth.equals("whitelisted");
-            out.add(new ServerRecord(address, asInt(m.get("port"), 25565), asString(m.get("version"), "?"),
+            Map<?, ?> geo = m.get("geolocation") instanceof Map<?, ?> g ? g : Map.of();
+            String version = blankDefault(asString(m.get("version"), ""), asString(m.get("rawVersion"), "?"));
+            out.add(new ServerRecord(address, asInt(m.get("port"), 25565), version,
                     asInt(firstNonNull(m.get("onlinePlayers"), m.get("players")), 0),
                     asInt(firstNonNull(m.get("maxPlayers"), m.get("max")), 0),
-                    asString(m.get("motd"), ""), "", "", "", "", asString(m.get("lastSeen"), ""),
+                    asString(m.get("motd"), ""), asString(geo.get("countryName"), ""), asString(geo.get("country"), ""),
+                    asString(geo.get("city"), ""), "", asString(m.get("lastSeen"), ""),
                     "", offline, whitelist, List.of(), asInt(m.get("protocol"), -1), "MineScan"));
         }
         return out;
