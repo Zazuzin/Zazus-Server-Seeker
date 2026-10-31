@@ -14,7 +14,11 @@ Candidates are checked using the standard Minecraft Java status protocol. Connec
 
 When **Auth Detection** is enabled, Server Seeker may also open a short-lived Minecraft login-phase connection to classify the public endpoint as Microsoft-authenticated, cracked/offline, or unknown. The probe uses a generated `ZazuAuth_...` username, does not use your Minecraft username, Microsoft account, password or access token, and disconnects before Minecraft reaches normal configuration/play. The destination server can still see the probe connection and your public IP address in its connection logs. Authentication results are cached locally in `config/zazus-server-seeker/server-auth.properties` for 14 days unless you manually request a recheck.
 
+The in-game API Key Settings editor saves your key locally in the existing per-instance config. It hides the field by default and omits the key from narration and status messages. Show reveals it only when explicitly selected; Clear Key removes the saved value.
+
 If configured, a BreakBlocks API key is sent only to BreakBlocks in an `Authorization: Bearer` header. It is not placed in request URLs or intentionally written to logs.
+
+Player Search sends only the player name or UUID you enter, along with your configured API key, to BreakBlocks after confirming VIP Treatment access. Searches are on demand and do not monitor players in the background. Results are held in memory for the open screen and are not saved or contributed automatically. Choosing Add saves only the selected server to your local server list.
 
 ## Local data
 
@@ -28,3 +32,7 @@ No local configuration or server history is bundled with official source or bina
 ## Removing data
 
 Remove the mod and its `config/zazus-server-seeker/` directory to delete mod-owned local data. Minecraft's `servers.dat` remains under the instance directory unless you remove it separately.
+
+## Ping sample history
+
+When Record Ping Players is enabled, names/UUIDs supplied in normal Minecraft status replies are saved locally in Server Notes, with sighting timestamps and separate ping counts. Pings can return only a partial or customized sample. This feature sends no extra requests and does not use or unlock VIP Player Search. Unsaved Finder candidates are held only in a bounded five-minute memory cache until added. Disabling recording stops new collection and clears that cache; existing history remains available. Detailed server filters are sent to BreakBlocks as search parameters.

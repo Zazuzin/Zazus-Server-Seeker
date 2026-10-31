@@ -4,15 +4,37 @@
 
 Zazu's Server Seeker is a client-side Fabric mod for Minecraft Java Edition 26.2 and 26.3. It adds a server finder, useful Multiplayer categories, server management tools and per-server notes without requiring Meteor Client.
 
-**Current release:** `1.2.1` with separate JARs for Minecraft 26.2 and 26.3.
+**Current release:** `1.2.2` with separate JARs for Minecraft 26.2 and 26.3.
 
 - [Releases](https://github.com/Zazuzin/Zazus-Server-Seeker/releases)
 - [Issues](https://github.com/Zazuzin/Zazus-Server-Seeker/issues)
-- [Discord support](https://discord.gg/TC4PhPx9sf)
+- [Discord support](https://breakblocks.com/discord)
+
+## VIP player search and API key settings
+
+Player Search is available from Multiplayer. It requires a BreakBlocks API key whose account is confirmed as **VIP Treatment**. Exact-name, partial-name and UUID searches show recorded names and associated servers. These are historical sightings and do not prove that a player is currently online on a listed server. Results are kept only for the open search session; servers are saved only when you choose Add.
+
+Users without confirmed VIP access see a membership notice with [Join VIP on Patreon](https://www.patreon.com/c/BreakBlocks), BreakBlocks Account, API Key Settings and Check Access controls. Link Patreon to your BreakBlocks account and configure your own API key using **Multiplayer → Settings → API Key** (or **Finder → Settings → API Key**). The Multiplayer Settings shortcut sits beside Zazu’s Server Seeker and opens preferences directly without starting a scan. Back returns to the menu you opened settings from, including after editing the API key. The editor hides the key by default and includes Save, Save & Test, Clear Key and Show/Hide controls. Changes take effect without restarting Minecraft. Access is checked again when opening Player Search; invalid keys, denied permissions and rate limits do not fall back to public player searches.
+
+## Seeker navigation
+
+Use **Back** or **Esc** to leave Seeker and return to the Multiplayer menu or category you opened it from. The main Seeker controls include a larger **BreakBlocks** shortcut. Manage blocked addresses under **Settings → Blocked Servers**; its Back button returns to Settings. The ready message reports how many servers were already added and whether they are skipped automatically.
+
+## Faster verified results
+
+Finder verifies each candidate independently. Each server still needs two successful status checks at least one second apart, and appears as soon as it passes both. Slower candidates continue in the background while verified rows can be inspected or added. The progress line shows checked, verified and pending candidates. Results remain sorted and paginated, and all verified candidates from a provider page are retained. Auto Add keeps its configured limit.
+
+The status pool remains capped at 20 simultaneous requests with the existing connection and response timeouts. Provider request limits and Quick Search behaviour are unchanged.
+
+## Detailed filters and ping player history
+
+Use **Filters** in Finder or Browse BreakBlocks to enter country/code, region, MOTD text and modpack filters. Blank fields match any; `*` is supported for country, region and MOTD. MOTD text without `*` matches anywhere. Apply selects BreakBlocks and resets the affected search; choosing another Finder source pauses these filters while preserving their values. Auto-add pauses while editing. Values are saved per instance and shared with the browser.
+
+Normal saved-server pings and Finder verification can record the player names included in actual status replies in **Server Notes → Players**. Servers can hide or customize that sample, so it is a historical report, not a complete roster or a verified online indicator. No extra pings or player-search requests are sent. Names stay local; this does not change VIP Player Search access. Unsaved Finder samples remain in a bounded five-minute memory cache and are written only when you add the server. Repeated samples count at most once per player per minute, separately from connected encounters. Disable this under **Settings → Record Ping Players**.
 
 ## Features
 
-- Finds servers through BreakBlocks, Cornbread and MineScan.
+- Finds servers through BreakBlocks, MineScan and Cornbread.
 - Browse BreakBlocks listings page by page in Multiplayer; save chosen entries to Servers with Add. Browsing does not start a scan or save the whole page.
 - Randomizes BreakBlocks page traversal and provider-result order so simultaneous searches are less likely to test the same servers first.
 - Verified Search checks results directly before showing or adding them.
@@ -59,8 +81,8 @@ Use **Browse BreakBlocks** on the main Multiplayer screen to inspect one API pag
 
 Choose a source under **Finder → Settings**:
 
-- **Auto** starts with BreakBlocks and falls back when needed.
-- **All Sources** rotates through the available providers and removes duplicate addresses.
+- **Auto** starts with BreakBlocks, then falls back to MineScan, followed by Cornbread.
+- **All Sources** rotates through BreakBlocks, MineScan and Cornbread in that order and removes duplicate addresses.
 - **BreakBlocks**, **Cornbread** or **MineScan** uses only that provider.
 
 BreakBlocks supports an optional API key. When BreakBlocks confirms an
@@ -68,6 +90,8 @@ authenticated paid tier, Server Seeker shows the tier and uses every available
 page reported by the search instead of the public page cap. Page and result
 orders remain randomized without repeating pages. Cornbread and MineScan do not
 require an API key.
+
+MineScan uses its documented [public API](https://minescan.xyz/docs). Its request allowance is shared across Finder searches within the running client: at most 60 requests per minute and 1,000 per hour. A rate-limit response pauses MineScan requests and allows Auto to continue with the next provider. Server versions and available country/city details are read from its v2 response.
 
 Verified Search uses two direct Minecraft status checks before a result is shown or Auto Added. Quick Search skips those checks, so Auto Add is disabled in Quick mode.
 
@@ -98,7 +122,7 @@ Do not commit or share your API key.
 ## Installation
 
 1. Install Fabric Loader and Fabric API for your Minecraft version.
-2. Download either `Zazus-Server-Seeker-1.2.1-mc26.2.jar` or `Zazus-Server-Seeker-1.2.1-mc26.3.jar` to match your instance.
+2. Download either `Zazus-Server-Seeker-1.2.2-mc26.2.jar` or `Zazus-Server-Seeker-1.2.2-mc26.3.jar` to match your instance.
 3. Put it in the instance's `mods` folder.
 4. Remove older Server Seeker JARs so only one version is installed.
 5. Start Minecraft and open Multiplayer.
@@ -119,7 +143,7 @@ Use JDK 25 with the included Gradle 9.5.1 wrapper and Fabric Loom project:
 
 ```bash
 ./build.sh
-./verify.sh build/libs/Zazus-Server-Seeker-1.2.1-mc26.3.jar
+./verify.sh build/libs/Zazus-Server-Seeker-1.2.2-mc26.3.jar
 ```
 
 The built JAR is written to `build/libs/`. The 26.3 project is also available in [`versions/mc26.3/`](https://github.com/Zazuzin/Zazus-Server-Seeker/tree/main/versions/mc26.3) on `main`.
@@ -129,6 +153,8 @@ The built JAR is written to `build/libs/`. The 26.3 project is also available in
 Created by Zazuzin.
 
 Special thanks to [BreakBlocks](https://breakblocks.com) for its server-discovery service and contribution support. You can also find Zazuzin in the [BreakBlocks Discord](https://breakblocks.com/discord).
+
+Additional server discovery provided by [MineScan](https://minescan.xyz).
 
 ## License
 

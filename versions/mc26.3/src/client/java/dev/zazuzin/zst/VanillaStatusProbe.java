@@ -56,7 +56,12 @@ final class VanillaStatusProbe {
     enum Failure { NONE, DNS, UNREACHABLE, TIMEOUT, ERROR }
 
     record Result(String endpoint, boolean replied, String version, int protocol,
-                  long latencyMs, Failure failure, String detail) {
+                  long latencyMs, Failure failure, String detail,
+                  List<dev.zazu.servernotes.service.ServerPlayerService.ObservedPlayer> playerSample) {
+        Result(String endpoint, boolean replied, String version, int protocol,
+               long latencyMs, Failure failure, String detail) {
+            this(endpoint, replied, version, protocol, latencyMs, failure, detail, List.of());
+        }
         static Result failed(String endpoint, Failure failure, String detail) {
             return new Result(endpoint, false, "", -1, -1L, failure, detail == null ? "" : detail);
         }
@@ -99,7 +104,14 @@ final class VanillaStatusProbe {
                         completed.add(Result.failed(targets.get(i), Failure.ERROR, rootMessage(root)));
                     }
                 }
-                Reflection.execute(client, () -> result.complete(List.copyOf(completed)));
+                Reflection.execute(client, () -> {
+                    if (isActive(sessionActive)) {
+                        for (Result reply : completed) if (reply.replied()) {
+                            ServerPingPlayerCollector.finderReply(client, reply.endpoint(), reply.playerSample());
+                        }
+                    }
+                    result.complete(List.copyOf(completed));
+                });
             });
         });
         return result;
@@ -168,7 +180,8 @@ final class VanillaStatusProbe {
                 }
 
                 LATENCY.put(ToolState.normalize(endpoint), new LatencySample(latency, System.currentTimeMillis()));
-                return new Result(endpoint, true, version.name, version.protocol, latency, Failure.NONE, "");
+                return new Result(endpoint, true, version.name, version.protocol, latency, Failure.NONE, "",
+                        dev.zazu.servernotes.service.PingPlayerSamples.parseStatus(json));
             }
         } catch (UnknownHostException | UnresolvedAddressException failure) {
             return Result.failed(endpoint, Failure.DNS, rootMessage(failure));

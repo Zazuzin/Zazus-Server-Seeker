@@ -33,9 +33,25 @@ jobs:
         with:
           gradle-version: "9.5.1"
 
+      - name: Test VIP player-search protocol and access boundaries
+        working-directory: ${{ matrix.path }}
+        run: bash tools/test_player_search.sh
+
       - name: Build verified JAR
         working-directory: ${{ matrix.path }}
         run: ./build.sh
+
+      - name: Audit real native ping hook APIs
+        working-directory: ${{ matrix.path }}
+        run: python3 tools/discovery_native_audit.py
+
+      - name: Test detailed filters and ping history
+        working-directory: ${{ matrix.path }}
+        run: bash tools/test_discovery_enhancements.sh
+
+      - name: Test in-game API-key persistence
+        working-directory: ${{ matrix.path }}
+        run: bash tools/test_api_key_settings.sh
 
       - name: Run regression suite
         working-directory: ${{ matrix.path }}
@@ -46,6 +62,9 @@ jobs:
         run: ./release_compatibility_tests.sh
 
       - name: Upload verified JAR
+        # Release downloads are published directly by the release workflow.
+        # An unavailable Actions artifact quota must not fail successful validation.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: zazus-server-seeker-mc${{ matrix.minecraft }}

@@ -3,7 +3,9 @@
   "package": "dev.zazuzin.zst.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
-    "OnlineServerEntryMixin"
+    "JoinMultiplayerScreenMixin",
+    "OnlineServerEntryMixin",
+    "StatusResponsePacketMixin"
   ],
   "injectors": {
     "defaultRequire": 1

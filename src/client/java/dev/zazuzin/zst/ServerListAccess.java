@@ -36,9 +36,15 @@ final class ServerListAccess {
 
     /** Reloads servers.dat without rebuilding the Multiplayer screen/footer. */
     static void reloadCategory(Object client, Object screen, ServerCategoryStore.Tab tab) throws Exception {
+        Object source = reloadSavedList(client, screen);
+        applyCategoryFromSource(client, screen, source, tab);
+    }
+
+    /** Reload only saved data; the category hub does not need live server rows. */
+    static Object reloadSavedList(Object client, Object screen) throws Exception {
         Object source = ServerFinderClient.ServerListBridge.createLoadedList(client);
         installServerListObject(screen, source);
-        applyCategoryFromSource(client, screen, source, tab);
+        return source;
     }
 
     /** Clears the hub's hidden vanilla rows and cancels their status jobs. The

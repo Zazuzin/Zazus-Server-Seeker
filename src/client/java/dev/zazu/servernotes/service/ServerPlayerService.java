@@ -27,7 +27,7 @@ public final class ServerPlayerService {
 
         boolean changed = false;
         for (ObservedPlayer observed : current.values()) {
-            ServerPlayerRecord record = profile.players().get(observed.key());
+            ServerPlayerRecord record = resolve(profile, observed);
             if (record == null) {
                 profile.players().put(observed.key(), new ServerPlayerRecord(observed.key(), observed.uuid(), observed.username()));
                 changed = true;
@@ -55,6 +55,49 @@ public final class ServerPlayerService {
         }
     }
 
+
+    /** Ping samples never change the live online-key set or connected encounters. */
+    public void recordPingSample(ServerProfile profile, Collection<ObservedPlayer> sample, String observedAt) {
+        java.time.Instant.parse(observedAt);
+        boolean changed = false;
+        LinkedHashSet<String> seen = new LinkedHashSet<>();
+        for (ObservedPlayer player : sample) {
+            if (player == null || player.key() == null || player.key().isBlank() || player.username() == null
+                    || !player.username().matches("[A-Za-z0-9_]{1,16}") || !seen.add(player.key())) continue;
+            ServerPlayerRecord record = resolve(profile, player);
+            if (record == null) {
+                if (profile.players().size() >= 2048) continue;
+                profile.players().put(player.key(), ServerPlayerRecord.fromPing(
+                        player.key(), player.uuid(), player.username(), observedAt));
+                changed = true;
+            } else if (record.observePing(player.uuid(), player.username(), observedAt)) changed = true;
+        }
+        if (changed) store.saveProfile(profile);
+    }
+
+    private ServerPlayerRecord resolve(ServerProfile profile, ObservedPlayer player) {
+        ServerPlayerRecord record = profile.players().get(player.key());
+        if (record != null) return record;
+        if (player.username() == null || player.username().isBlank()) return null;
+        String nameKey = "name:" + player.username().toLowerCase(java.util.Locale.ROOT);
+        ServerPlayerRecord nameOnly = profile.players().get(nameKey);
+        if (!player.uuid().isBlank() && nameOnly != null && nameOnly.uuid().isBlank()) {
+            profile.players().remove(nameKey);
+            nameOnly.rekey(player.key());
+            profile.players().put(player.key(), nameOnly);
+            return nameOnly;
+        }
+        if (player.uuid().isBlank()) {
+            ServerPlayerRecord unique = null;
+            for (ServerPlayerRecord candidate : profile.players().values()) {
+                if (!candidate.username().equalsIgnoreCase(player.username())) continue;
+                if (unique != null) return null;
+                unique = candidate;
+            }
+            return unique;
+        }
+        return null;
+    }
 
     public void removeLocalPlayer(ServerProfile profile, String uuid, String username) {
         String normalizedUuid = uuid == null ? "" : uuid.trim();

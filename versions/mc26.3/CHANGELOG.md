@@ -1,3 +1,67 @@
+# 1.2.2
+
+- Released the tested rc.8 feature set for Minecraft 26.2 and 26.3.
+- Added VIP player search, in-game API-key settings, detailed filters and local ping player history.
+- Added MineScan as the second-priority provider after BreakBlocks, with shared request limits.
+- Streamed independently verified results as soon as they are ready.
+- Fixed Back/Escape navigation, moved Blocked Servers into Settings and enlarged the BreakBlocks shortcut.
+
+# 1.2.2-rc.8
+
+- Fixed Back and native Escape from Seeker returning to the title screen; Multiplayer and category views are restored in place.
+- Renamed Close Finder to Back and fully removed overlay widgets when leaving a view.
+- Moved Blocked Servers into Settings with Back returning to the same settings page.
+- Expanded the BreakBlocks shortcut and replaced the Browse BB label.
+- Clarified added-history wording and reflected whether automatic skipping is enabled.
+
+# 1.2.2-rc.7
+
+- Prioritised server discovery as BreakBlocks, then MineScan, then Cornbread in Auto and All Sources.
+- Verified MineScan integration against its v2 API documentation and a live one-result response.
+- Added a shared MineScan minute/hour request allowance and Retry-After handling.
+- Read MineScan raw-version fallbacks, country and city metadata while preserving saved provider selections and existing verification.
+
+# 1.2.2-rc.6
+
+- Confirmed each Finder candidate independently, keeping two successful status checks one second apart.
+- Published verified results immediately while slow or unreachable candidates finish in the background.
+- Retained every verified result from each provider page and preserved sorting, Add controls and Auto Add limits.
+- Added checked, verified and pending progress counts, plus controlled loopback regression coverage for streaming and cancellation.
+
+# 1.2.2-rc.5
+
+- Added saved country, region, MOTD and modpack filters to Finder and Browse BreakBlocks.
+- Added automatic local player-history sightings from actual saved-server pings and Finder verification samples.
+- Kept ping sightings separate from connected encounters, with deduplication, name-to-UUID history migration and a recording toggle.
+- Preserved schema-v2 Server Notes, existing notes and previous navigation fixes.
+
+# 1.2.2-rc.4
+
+- Fixed Back from the Multiplayer Settings shortcut returning to Finder instead of Multiplayer.
+- Preserved the original return menu after visiting API Key, API testing and settings submenus.
+- Added regression coverage for both Multiplayer and Finder return paths.
+
+# 1.2.2-rc.3
+
+- Added a Settings shortcut beside Zazu's Server Seeker on the Multiplayer hub.
+- Opens the full settings view, including API Key and Test API Key, without starting a scan.
+- Keeps the shortcut fitted and removes it with the other hub controls when opening a category or tool view.
+
+# 1.2.2-rc.2
+
+- Added a masked in-game API-key editor under Finder Settings and the Player Search membership notice.
+- Added Save, Save & Test, Clear Key and Show/Hide controls using the existing per-instance config.
+- Preserved manual config edits and unrelated settings while saving key edits atomically.
+- Cancelled stale checks and reset old authentication when the saved key changes.
+
+# 1.2.2-rc.1
+
+- Added VIP Treatment player search by exact name, partial name and UUID on Multiplayer.
+- Added a membership notice with Patreon, account, config and access-check buttons.
+- Displayed historical name/server records with Copy UUID, Copy IP and explicit Add to Servers actions.
+- Reused the configured key and shared request budget; denied access never falls back to anonymous player searches.
+- Kept search results in memory and cancelled requests when closing the screen.
+
 # 1.2.1
 
 - Added an on-demand BreakBlocks browser to the Multiplayer screen with page navigation, filters, details and Add controls.
