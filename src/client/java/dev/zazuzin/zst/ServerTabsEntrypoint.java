@@ -522,6 +522,21 @@ public final class ServerTabsEntrypoint implements ClientModInitializer {
         return true;
     }
 
+    static boolean restoreAfterSeeker(Object screen) {
+        State state = STATES.get(screen);
+        if (state == null) return false;
+        if (state.view != View.HUB) return refreshCurrentScreen(screen);
+        try {
+            ServerListAccess.reloadSavedList(state.client, screen);
+            captureFullRows(state, false);
+            state.layoutDirty = true;
+            showHub(state);
+        } catch (Throwable t) {
+            logOnce(state, "Could not restore Multiplayer after Seeker", t);
+        }
+        return true;
+    }
+
     private static void openBreakBlocksBrowser(State state) {
         try {
             ServerFinderClient.openBrowserOverlay(state.client, state.screen, state.width, state.height);

@@ -1,3 +1,19 @@
+# 1.2.2
+
+- Released the tested rc.8 feature set for Minecraft 26.2 and 26.3.
+- Added VIP player search, in-game API-key settings, detailed filters and local ping player history.
+- Added MineScan as the second-priority provider after BreakBlocks, with shared request limits.
+- Streamed independently verified results as soon as they are ready.
+- Fixed Back/Escape navigation, moved Blocked Servers into Settings and enlarged the BreakBlocks shortcut.
+
+# 1.2.2-rc.8
+
+- Fixed Back and native Escape from Seeker returning to the title screen; Multiplayer and category views are restored in place.
+- Renamed Close Finder to Back and fully removed overlay widgets when leaving a view.
+- Moved Blocked Servers into Settings with Back returning to the same settings page.
+- Expanded the BreakBlocks shortcut and replaced the Browse BB label.
+- Clarified added-history wording and reflected whether automatic skipping is enabled.
+
 # 1.2.2-rc.7
 
 - Prioritised server discovery as BreakBlocks, then MineScan, then Cornbread in Auto and All Sources.

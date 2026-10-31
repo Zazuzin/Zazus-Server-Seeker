@@ -6,7 +6,7 @@
 
 Zazu's Server Seeker is a client-side Fabric mod for Minecraft Java Edition 26.2 and 26.3. It adds a server finder, useful Multiplayer categories, server management tools and per-server notes without requiring Meteor Client.
 
-**Current release:** `1.2.1` with separate JARs for Minecraft 26.2 and 26.3.
+**Current release:** `1.2.2` with separate JARs for Minecraft 26.2 and 26.3.
 
 - [Releases](https://github.com/Zazuzin/Zazus-Server-Seeker/releases)
 - [Issues](https://github.com/Zazuzin/Zazus-Server-Seeker/issues)
@@ -18,8 +18,8 @@ Choose the download for your Minecraft version:
 
 | Minecraft | Download | Fabric Loader |
 | --- | --- | --- |
-| 26.2 | [Zazus-Server-Seeker-1.2.1-mc26.2.jar](https://github.com/Zazuzin/Zazus-Server-Seeker/releases/download/v1.2.1/Zazus-Server-Seeker-1.2.1-mc26.2.jar) | 0.19.3 or newer |
-| 26.3 | [Zazus-Server-Seeker-1.2.1-mc26.3.jar](https://github.com/Zazuzin/Zazus-Server-Seeker/releases/download/v1.2.1/Zazus-Server-Seeker-1.2.1-mc26.3.jar) | 0.19.5 or newer |
+| 26.2 | [Zazus-Server-Seeker-1.2.2-mc26.2.jar](https://github.com/Zazuzin/Zazus-Server-Seeker/releases/download/v1.2.2/Zazus-Server-Seeker-1.2.2-mc26.2.jar) | 0.19.3 or newer |
+| 26.3 | [Zazus-Server-Seeker-1.2.2-mc26.3.jar](https://github.com/Zazuzin/Zazus-Server-Seeker/releases/download/v1.2.2/Zazus-Server-Seeker-1.2.2-mc26.3.jar) | 0.19.5 or newer |
 
 Both versions require **Java 25** and [Fabric API](https://modrinth.com/mod/fabric-api) for the matching Minecraft version: `0.158.0+26.2` or newer for 26.2, or `0.163.0+26.3` or newer for 26.3.
 
@@ -33,11 +33,15 @@ Install the mod on your client. The server does not need it.
 
 ViaFabricPlus 4.6.1+ is optional; it is required to join 26.3 servers from a 26.2 client.
 
-## Development build: 1.2.2-rc.7
+## VIP player search and API key settings
 
-Player Search is available from Multiplayer in this test build. It requires a BreakBlocks API key whose account is confirmed as **VIP Treatment**. Exact-name, partial-name and UUID searches show recorded names and associated servers. These are historical sightings and do not prove that a player is currently online on a listed server. Results are kept only for the open search session; servers are saved only when you choose Add.
+Player Search is available from Multiplayer. It requires a BreakBlocks API key whose account is confirmed as **VIP Treatment**. Exact-name, partial-name and UUID searches show recorded names and associated servers. These are historical sightings and do not prove that a player is currently online on a listed server. Results are kept only for the open search session; servers are saved only when you choose Add.
 
 Users without confirmed VIP access see a membership notice with [Join VIP on Patreon](https://www.patreon.com/c/BreakBlocks), BreakBlocks Account, API Key Settings and Check Access controls. Link Patreon to your BreakBlocks account and configure your own API key using **Multiplayer → Settings → API Key** (or **Finder → Settings → API Key**). The Multiplayer Settings shortcut sits beside Zazu’s Server Seeker and opens preferences directly without starting a scan. Back returns to the menu you opened settings from, including after editing the API key. The editor hides the key by default and includes Save, Save & Test, Clear Key and Show/Hide controls. Changes take effect without restarting Minecraft. Access is checked again when opening Player Search; invalid keys, denied permissions and rate limits do not fall back to public player searches.
+
+## Seeker navigation
+
+Use **Back** or **Esc** to leave Seeker and return to the Multiplayer menu or category you opened it from. The main Seeker controls include a larger **BreakBlocks** shortcut. Manage blocked addresses under **Settings → Blocked Servers**; its Back button returns to Settings. The ready message reports how many servers were already added and whether they are skipped automatically.
 
 ## Faster verified results
 
@@ -147,7 +151,7 @@ Use JDK 25 with the included Gradle 9.5.1 wrapper and Fabric Loom project:
 
 ```bash
 ./build.sh
-./verify.sh build/libs/Zazus-Server-Seeker-1.2.1-mc26.2.jar
+./verify.sh build/libs/Zazus-Server-Seeker-1.2.2-mc26.2.jar
 ```
 
 The built JAR is written to `build/libs/`. The 26.3 source is in [`versions/mc26.3/`](versions/mc26.3/) on this branch. To build it, run `cd versions/mc26.3` followed by `./build.sh` and `./verify.sh`.

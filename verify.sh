@@ -1728,6 +1728,7 @@ public final class RuntimeRegressionTest {
 
     static final class FakeListWidget {
         final List<Object> onlineServers = new ArrayList<>();
+        public void updateOnlineServers(ServerList list) { onlineServers.clear(); onlineServers.addAll(list.servers); }
     }
 
     static final class FakeServerEntry {
@@ -1757,7 +1758,7 @@ public final class RuntimeRegressionTest {
         hubSettings.widgets.add(finderButton); hubSettings.subWidgets.add(settingsButton);
         ServerFinderClient.backFromSettings(hubSettings);
         if (hubSettings.open || hubSettings.autoAdd || !hubButton.visible || !hubButton.active
-                || hub.children.contains(finderButton) || hub.children.contains(settingsButton) || hub.refreshes != 1) {
+                || hub.children.contains(finderButton) || hub.children.contains(settingsButton) || hub.refreshes != 0) {
             throw new AssertionError("Multiplayer Settings Back did not restore the Multiplayer menu");
         }
 
@@ -1864,7 +1865,10 @@ public final class RuntimeRegressionTest {
 }
 JAVA
 javac --release 25 -cp "$JAR" -d "$RUNTIME_TEST_DIR"   "$RUNTIME_TEST_DIR/net/fabricmc/api/ClientModInitializer.java"   "$RUNTIME_TEST_DIR/net/fabricmc/fabric/api/client/screen/v1/Screens.java"   "$RUNTIME_TEST_DIR/net/minecraft/client/multiplayer/ServerData.java"   "$RUNTIME_TEST_DIR/net/minecraft/client/multiplayer/ServerList.java"   "$RUNTIME_TEST_DIR/dev/zazuzin/zst/RuntimeRegressionTest.java"
+bash "$ROOT/tools/seeker_navigation_fixtures.sh" "$RUNTIME_TEST_DIR"
+javac --release 25 -cp "$JAR:$RUNTIME_TEST_DIR" -d "$RUNTIME_TEST_DIR" "$RUNTIME_TEST_DIR/net/minecraft/network/chat/Component.java" "$RUNTIME_TEST_DIR/net/minecraft/client/gui/components/Button.java" "$RUNTIME_TEST_DIR/net/minecraft/client/gui/screens/Screen.java" "$ROOT/tools/SeekerNavigationTest.java"
 java -Duser.dir="$RUNTIME_TEST_DIR" -cp "$JAR:$RUNTIME_TEST_DIR" dev.zazuzin.zst.RuntimeRegressionTest
+java -Duser.dir="$RUNTIME_TEST_DIR" -cp "$JAR:$RUNTIME_TEST_DIR" dev.zazuzin.zst.SeekerNavigationTest
 javac --release 25 -cp "$JAR:$RUNTIME_TEST_DIR" -d "$RUNTIME_TEST_DIR" "$ROOT/tools/StreamingFinderTest.java"
 java -Duser.dir="$RUNTIME_TEST_DIR" -cp "$JAR:$RUNTIME_TEST_DIR" dev.zazuzin.zst.StreamingFinderTest
 rm -rf "$RUNTIME_TEST_DIR"

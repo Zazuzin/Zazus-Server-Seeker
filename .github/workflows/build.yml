@@ -62,6 +62,9 @@ jobs:
         run: ./release_compatibility_tests.sh
 
       - name: Upload verified JAR
+        # Release downloads are published directly by the release workflow.
+        # An unavailable Actions artifact quota must not fail successful validation.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: zazus-server-seeker-mc${{ matrix.minecraft }}

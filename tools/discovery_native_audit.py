@@ -2,6 +2,7 @@
 """Check the actual installed Minecraft APIs used by the status sample hook."""
 from pathlib import Path
 import os
+import re
 import subprocess
 import zipfile
 
@@ -11,6 +12,10 @@ classpath = os.pathsep.join((root / 'build/client-compile-classpath.txt').read_t
 def javap(name):
     return subprocess.run(['javap', '-p', '-s', '-classpath', classpath, name],
                           check=True, capture_output=True, text=True).stdout
+
+multiplayer = javap('net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen')
+assert re.search(r'public void onClose\(\);\s+descriptor: \(\)V', multiplayer), 'Native Multiplayer close hook changed'
+print('Real Multiplayer onClose()V interception target verified.')
 
 packet = javap('net.minecraft.network.protocol.status.ClientboundStatusResponsePacket')
 assert '(Lnet/minecraft/network/protocol/status/ClientStatusPacketListener;)V' in packet

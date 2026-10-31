@@ -64,6 +64,14 @@ public final class ServerFinderClient {
         return state != null && state.open;
     }
 
+    /** Consume native Multiplayer close/Escape while Seeker owns the screen. */
+    public static boolean closeForScreen(Object screen) {
+        OverlayState state = STATES.get(screen);
+        if (state == null || !state.open) return false;
+        closeOverlay(state);
+        return true;
+    }
+
     static void openOverlay(Object client, Object screen, int width, int height) throws Exception {
         openOverlay(client, screen, width, height, false);
     }
@@ -132,8 +140,8 @@ public final class ServerFinderClient {
                 "Automatically save servers that pass Verified Search. Options: ON or OFF.", b -> toggleAuto(s));
         s.resetButton = trackedButton(s, "Reset Search", topX + findWidth + autoWidth + 8, y, resetWidth,
                 "Clear the current results and begin again with the selected filters.", b -> resetSearchState(s, "Search reset."));
-        s.closeButton = trackedButton(s, "Close Finder", topX + findWidth + autoWidth + resetWidth + 12, y, closeWidth,
-                "Close Server Finder and return to the multiplayer screen.", b -> closeOverlay(s));
+        s.closeButton = trackedButton(s, "Back", topX + findWidth + autoWidth + resetWidth + 12, y, closeWidth,
+                "Return to Multiplayer.", b -> closeOverlay(s));
 
         y += 24;
         final int filterMenuY = y + 21;
@@ -160,24 +168,23 @@ public final class ServerFinderClient {
         y += 24;
         final int sortMenuY = y + 21;
         int sortWidth = Math.min(388, s.width - 12), sortX = (s.width - sortWidth) / 2;
-        int columnWidth = (sortWidth - 16) / 5, lastWidth = sortWidth - 16 - 4 * columnWidth;
+        int columnWidth = (sortWidth - 12) / 5, browserWidth = 2 * columnWidth;
+        int lastWidth = sortWidth - 12 - 2 * columnWidth - browserWidth;
         s.sortButton = trackedButton(s, sortLabel(s), sortX, y, columnWidth,
                 "Result order. Click to choose how discovered servers are sorted.",
                 b -> openMainOptionMenu(s, sortX, sortMenuY, columnWidth, List.of(SORT_LABELS), s.sortIndex,
                         selected -> selectSort(s, selected)));
         s.filtersButton = trackedButton(s, filtersLabel(), sortX + columnWidth + 4, y, columnWidth,
                 "Country, region, MOTD text and modpack filters for BreakBlocks.", b -> openDetailedFilters(s, false));
-        s.blockedButton = trackedButton(s, blockedLabel(), sortX + 2 * (columnWidth + 4), y, columnWidth,
-                "View, unblock or clear servers excluded from future searches.", b -> showBlockedList(s));
-        s.browserButton = trackedButton(s, "Browse BB", sortX + 3 * (columnWidth + 4), y, columnWidth,
+        s.browserButton = trackedButton(s, "BreakBlocks", sortX + 2 * (columnWidth + 4), y, browserWidth,
                 "Browse BreakBlocks pages and choose individual servers to save.", b -> openBrowser(s));
-        s.settingsButton = trackedButton(s, "Settings", sortX + 4 * (columnWidth + 4), y, lastWidth,
+        s.settingsButton = trackedButton(s, "Settings", sortX + 2 * (columnWidth + 4) + browserWidth + 4, y, lastWidth,
                 "Open Finder preferences, statistics and contribution controls.", b -> showSettings(s));
 
         y += 26;
         int contentWidth = Math.min(452, s.width - 12), x = (s.width - contentWidth) / 2;
         s.statusButton = addTracked(s, Reflection.makeButton(
-                "Ready — " + ToolState.addedHistoryCount() + " servers added before can be skipped automatically.",
+                readyStatus(ToolState.addedHistoryCount(), ToolState.skipAddedHistory),
                 x, y, contentWidth, 20, b -> {}));
         Reflection.setBoolean(s.statusButton, "active", false);
 
@@ -202,6 +209,12 @@ public final class ServerFinderClient {
 
     static int finderRowsPerPage(OverlayState s) {
         return Math.max(1, Math.min(DISPLAY_RESULTS, (s.height - 159) / 23));
+    }
+
+    static String readyStatus(int added, boolean skipping) {
+        String history = added + (added == 1 ? " server already added. " : " servers already added. ");
+        if (!skipping) return history + "Automatic skipping is off in Settings.";
+        return history + (added == 1 ? "It is skipped automatically." : "These are skipped automatically.");
     }
 
     private static Object addTracked(OverlayState s, Object widget) throws Exception {
@@ -296,7 +309,7 @@ public final class ServerFinderClient {
     }
 
     private static void clearOptionMenu(OverlayState s) {
-        try { Reflection.widgets(s.screen).removeAll(s.optionMenuWidgets); } catch (Throwable ignored) {}
+        for (Object widget : new ArrayList<>(s.optionMenuWidgets)) Reflection.removeWidget(s.screen, widget);
         s.optionMenuWidgets.clear();
         for (Map.Entry<Object, Boolean> entry : s.optionMenuOwnerStates.entrySet()) {
             Reflection.setBoolean(entry.getKey(), "active", entry.getValue());
@@ -313,31 +326,31 @@ public final class ServerFinderClient {
     private static void closeOverlay(OverlayState s) {
         if (!s.open) return;
         s.open = false;
+        s.loading = false;
+        s.searchGeneration++;
         s.browserOpen = false;
+        s.browserLoading = false;
         s.browserRequestToken++;
+        s.apiKeyTestToken++;
         s.autoAdd = false;
         s.autoAddScheduleToken++;
         clearOptionMenu(s);
-        try {
-            List<Object> widgets = Reflection.widgets(s.screen);
-            widgets.removeAll(s.widgets);
-            widgets.removeAll(s.subWidgets);
-        } catch (Throwable ignored) {}
+        for (Object widget : new ArrayList<>(s.widgets)) Reflection.removeWidget(s.screen, widget);
+        for (Object widget : new ArrayList<>(s.subWidgets)) Reflection.removeWidget(s.screen, widget);
         for (Map.Entry<Object, WidgetState> e : s.originalStates.entrySet()) {
             Reflection.setBoolean(e.getKey(), "visible", e.getValue().visible());
             Reflection.setBoolean(e.getKey(), "active", e.getValue().active());
         }
         s.widgets.clear();
         s.subWidgets.clear();
+        STATES.remove(s.screen, s);
         try { refreshMultiplayerAfterFinderClose(s); }
         catch (Throwable t) { log("Close Finder failed", t); }
     }
 
     private static void refreshMultiplayerAfterFinderClose(OverlayState s) throws Exception {
-        if (ServerTabsEntrypoint.refreshCurrentScreen(s.screen)) return;
-        ServerTabsEntrypoint.preserveCurrentViewAfterRefresh(s.screen);
-        Method refresh = Reflection.findMethod(s.screen.getClass(), "refreshServerList", 0);
-        if (refresh != null) refresh.invoke(s.screen);
+        if (ServerTabsEntrypoint.restoreAfterSeeker(s.screen)) return;
+        ServerListAccess.reloadCategory(s.client, s.screen, null);
         MultiplayerManagementEntrypoint.rebuildRowButtons(s.screen);
     }
 
@@ -1183,11 +1196,13 @@ public final class ServerFinderClient {
         s.apiKeyTestOpen = false;
         for (Object w : s.widgets) Reflection.setBoolean(w, "visible", true);
         refreshRows(s);
+        if (!s.loading && s.results.isEmpty()) setStatus(s, readyStatus(ToolState.addedHistoryCount(), ToolState.skipAddedHistory));
     }
     private static void clearSubView(OverlayState s) {
         clearOptionMenu(s);
-        try { Reflection.widgets(s.screen).removeAll(s.subWidgets); } catch (Throwable ignored) {}
+        for (Object widget : new ArrayList<>(s.subWidgets)) Reflection.removeWidget(s.screen, widget);
         s.subWidgets.clear();
+        s.blockedButton = null;
     }
 
     private static void openBrowser(OverlayState s) {
@@ -1770,7 +1785,11 @@ public final class ServerFinderClient {
                             showSettings(s);
                         });
                     }
-                    case 6 -> addSubLabel(s, "Auth Recheck: " + ServerAuthService.RECHECK_DAYS + " days", x, rowY, contentWidth);
+                    case 6 -> {
+                        addSubLabel(s, "Auth Recheck: " + ServerAuthService.RECHECK_DAYS + " days", x, rowY, leftWidth);
+                        s.blockedButton = subButton(s, blockedLabel(), rightX, rowY, rightWidth,
+                                "View, unblock or clear servers excluded from future searches.", b -> showBlockedList(s));
+                    }
                     case 7 -> {
                         subButton(s, "Contribute Servers: " + onOff(ToolState.contributeVerifiedServers), x, rowY, leftWidth,
                                 "Send public double-verified discoveries and successful joins to BreakBlocks.", b -> {
@@ -2174,8 +2193,8 @@ public final class ServerFinderClient {
             subButton(s, "Clear Entire Blocked List", x, s.height - 28, 200,
                     "Remove all blocked entries.", b -> { ToolState.clearBlocked(); s.blockedPage = 0; showBlockedList(s); });
             subButton(s, "Back", x + contentWidth - 100, s.height - 28, 100,
-                    "Return to Finder.", b -> { clearSubView(s); showMain(s); });
-        } catch (Throwable t) { log("Could not open blocked list", t); clearSubView(s); showMain(s); }
+                    "Return to Settings.", b -> showSettings(s));
+        } catch (Throwable t) { log("Could not open blocked list", t); showSettings(s); }
     }
 
     private static void refreshStats(OverlayState s) {
