@@ -39,10 +39,6 @@ Player Search is available from Multiplayer. It requires a BreakBlocks API key w
 
 Users without confirmed VIP access see a membership notice with [Join VIP on Patreon](https://www.patreon.com/c/BreakBlocks), BreakBlocks Account, API Key Settings and Check Access controls. Link Patreon to your BreakBlocks account and configure your own API key using **Multiplayer → Settings → API Key** (or **Finder → Settings → API Key**). The Multiplayer Settings shortcut sits beside Zazu’s Server Seeker and opens preferences directly without starting a scan. Back returns to the menu you opened settings from, including after editing the API key. The editor hides the key by default and includes Save, Save & Test, Clear Key and Show/Hide controls. Changes take effect without restarting Minecraft. Access is checked again when opening Player Search; invalid keys, denied permissions and rate limits do not fall back to public player searches.
 
-## Seeker navigation
-
-Use **Back** or **Esc** to leave Seeker and return to the Multiplayer menu or category you opened it from. The main Seeker controls include a larger **BreakBlocks** shortcut. Manage blocked addresses under **Settings → Blocked Servers**; its Back button returns to Settings. The ready message reports how many servers were already added and whether they are skipped automatically.
-
 ## Faster verified results
 
 Finder verifies each candidate independently. Each server still needs two successful status checks at least one second apart, and appears as soon as it passes both. Slower candidates continue in the background while verified rows can be inspected or added. The progress line shows checked, verified and pending candidates. Results remain sorted and paginated, and all verified candidates from a provider page are retained. Auto Add keeps its configured limit.
